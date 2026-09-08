@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import Link from "next/link";
 import "./globals.css";
 import { WorkerStatus } from "@/components/WorkerStatus";
@@ -9,6 +9,15 @@ import { GlobalPlayerBar } from "@/components/player/GlobalPlayerBar";
 import { DropProvider } from "@/components/DropProvider";
 import { getMessages } from "@/lib/i18n/server";
 
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#2563eb" },
+    { media: "(prefers-color-scheme: dark)", color: "#18181b" },
+  ],
+  width: "device-width",
+  initialScale: 1,
+};
+
 export async function generateMetadata(): Promise<Metadata> {
   const { locale } = await getMessages();
   return {
@@ -17,6 +26,10 @@ export async function generateMetadata(): Promise<Metadata> {
       locale === "cs"
         ? "Přepis nahrávek schůzek s rozpoznáním mluvčích (WhisperX)"
         : "Meeting transcription with speaker diarization (WhisperX)",
+    applicationName: "Note Taker",
+    manifest: "/manifest.webmanifest",
+    appleWebApp: { capable: true, title: "Note Taker", statusBarStyle: "default" },
+    formatDetection: { telephone: false },
   };
 }
 
