@@ -18,6 +18,8 @@ export const recordings = sqliteTable("recordings", {
   progress: integer("progress").notNull().default(0),
   phase: text("phase"),
   error: text("error"),
+  /** Non-fatal problem with a completed result (e.g. diarization failed) */
+  warning: text("warning"),
   /** Number of dispatch attempts to the worker (for backoff when the worker is offline) */
   dispatchAttempts: integer("dispatch_attempts").notNull().default(0),
 

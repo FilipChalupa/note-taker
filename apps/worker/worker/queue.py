@@ -339,6 +339,7 @@ class TaskQueue:
             "duration": task.duration,
             "model": settings.model_name,
             "diarized": out["diarized"],
+            "diarization_error": out.get("diarization_error"),
             "speakers": out["speakers"],
             "segments": out["segments"],
             "audio_url": f"/tasks/{task.id}/audio",

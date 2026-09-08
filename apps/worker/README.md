@@ -26,10 +26,16 @@ Swagger UI: `http://localhost:8000/docs`. The first run downloads the model (~1.
 ### Diarization (HF_TOKEN)
 
 1. Create a read token at https://huggingface.co/settings/tokens.
-2. Accept the terms of **pyannote/speaker-diarization-3.1** and **pyannote/segmentation-3.0**.
+2. Accept the terms of **pyannote/speaker-diarization-community-1** (recommended, best accuracy). If you only accept
+   **pyannote/speaker-diarization-3.1** + **pyannote/segmentation-3.0**, the worker falls back to that pipeline.
 3. Put the token into `.env` as `HF_TOKEN=hf_...`.
 
 Without a token the worker still runs; every segment is labelled `SPEAKER_00` and `/health` reports `diarization_enabled: false`.
+If diarization fails for another reason (gated model not accepted, network), the transcript is still delivered with a single
+speaker, `/health` reports `diarization_error`, and the web UI shows a warning with a "Reprocess" button.
+
+`DIARIZATION_MODEL` selects the pyannote pipeline (default `pyannote/speaker-diarization-community-1`, fallback
+`pyannote/speaker-diarization-3.1`). Each is gated separately on Hugging Face.
 
 ### Reaching WSL2 from the homelab
 
@@ -57,6 +63,7 @@ If the worker is exposed to the network, set `WORKER_API_KEY` (and the same valu
 | `DEFAULT_LANGUAGE` | `cs` | used when the request has no language; empty = auto-detect |
 | `HF_TOKEN` | – | pyannote token |
 | `DIARIZATION_ENABLED` | `1` | `0` disables diarization |
+| `DIARIZATION_MODEL` | `pyannote/speaker-diarization-community-1` | pyannote pipeline id on Hugging Face (falls back to 3.1) |
 | `WORKER_API_KEY` | – | optional shared secret (`X-API-Key`) |
 | `WORKER_DATA_DIR` | `./data` | task storage (`data/tasks/<id>/{status.json,result.json,audio.mp3}`) |
 | `TASK_TTL_HOURS` | `72` | finished tasks older than this are deleted on startup |

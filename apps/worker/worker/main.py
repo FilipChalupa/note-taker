@@ -106,6 +106,7 @@ def health() -> Health:
         device=settings.device,
         model_loaded=pipeline.model_loaded,
         diarization_enabled=bool(settings.diarization_enabled and settings.hf_token),
+        diarization_error=pipeline.diarization_error or (None if settings.hf_token or not settings.diarization_enabled else "HF_TOKEN is not set"),
         cuda=cuda,
         queue=QueueInfo(pending=task_queue.pending(), current_task_id=task_queue.current_task_id),
     )

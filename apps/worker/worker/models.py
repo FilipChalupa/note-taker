@@ -68,6 +68,8 @@ class TaskResult(BaseModel):
     duration: float
     model: str
     diarized: bool
+    # Why speakers were not identified (None when diarization succeeded)
+    diarization_error: Optional[str] = None
     speakers: list[str]
     segments: list[Segment]
     audio_url: str
@@ -95,5 +97,7 @@ class Health(BaseModel):
     device: str
     model_loaded: bool
     diarization_enabled: bool
+    # Last diarization failure, if any (e.g. missing token, gated model, API change)
+    diarization_error: Optional[str] = None
     cuda: CudaInfo
     queue: QueueInfo

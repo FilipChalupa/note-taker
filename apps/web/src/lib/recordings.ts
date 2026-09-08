@@ -28,6 +28,7 @@ function toSummary(r: Omit<RecordingRow, "segments">): RecordingSummary {
     durationSec: r.durationSec,
     speakerCount: r.speakerCount,
     error: r.error,
+    warning: r.warning ?? null,
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
   };
@@ -62,6 +63,7 @@ export function listRecordings(): RecordingSummary[] {
       progress: recordings.progress,
       phase: recordings.phase,
       error: recordings.error,
+      warning: recordings.warning,
       dispatchAttempts: recordings.dispatchAttempts,
       durationSec: recordings.durationSec,
       detectedLanguage: recordings.detectedLanguage,
@@ -176,7 +178,10 @@ export async function retryRecording(id: string): Promise<RecordingDetail | null
       progress: 0,
       phase: "QUEUED",
       error: null,
+      warning: null,
       dispatchAttempts: 0,
+      // speaker ids are reassigned by a new diarization run, old names would not match
+      speakerNames: row.status === "COMPLETED" ? {} : row.speakerNames,
       updatedAt: now(),
     })
     .where(eq(recordings.id, id))
@@ -314,6 +319,7 @@ export async function syncRecording(id: string): Promise<void> {
       progress: 100,
       phase: "COMPLETED",
       error: null,
+      warning: result.diarized ? null : `DIARIZATION_FAILED:${result.diarization_error ?? "unknown"}`,
       durationSec: result.duration,
       detectedLanguage: result.language,
       speakerCount: result.speakers.filter((s) => s !== "UNKNOWN").length,

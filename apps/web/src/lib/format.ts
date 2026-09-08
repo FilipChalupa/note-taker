@@ -55,6 +55,16 @@ export function phaseLabel(phase: string | null | undefined, m: Messages): strin
   return template ? fmt(template, { n: param ?? "" }) : phase;
 }
 
+/** Warnings are stored as "CODE:detail"; the code is translated, the detail appended. */
+export function warningLabel(warning: string | null | undefined, m: Messages): string | null {
+  if (!warning) return null;
+  const idx = warning.indexOf(":");
+  const key = idx >= 0 ? warning.slice(0, idx) : warning;
+  const detail = idx >= 0 ? warning.slice(idx + 1) : "";
+  const template = (m.warnings as Record<string, string>)[key];
+  return template ? fmt(template, { detail }) : warning;
+}
+
 /** Our own error codes are translated; raw worker messages pass through. */
 export function errorLabel(error: string | null | undefined, m: Messages): string | null {
   if (!error) return null;

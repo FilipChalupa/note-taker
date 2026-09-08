@@ -51,12 +51,15 @@ export function WorkerStatus() {
     ? `${h.cuda.device_name} · ${h.cuda.vram_used_mb ?? "?"}/${h.cuda.vram_total_mb ?? "?"} MB VRAM`
     : m.worker.cpu;
   const queued = h.queue.pending + (h.queue.current_task_id ? 1 : 0);
-  const tooltip = `${state.url}\n${gpuDetail}\n${m.worker.model}: ${h.model} (${h.compute_type})\n${m.worker.diarization}: ${h.diarization_enabled ? m.worker.on : m.worker.off}`;
+  const diarizationLine = h.diarization_error
+    ? fmt(m.worker.diarizationFailed, { detail: h.diarization_error })
+    : `${m.worker.diarization}: ${h.diarization_enabled ? m.worker.on : m.worker.off}`;
+  const tooltip = `${state.url}\n${gpuDetail}\n${m.worker.model}: ${h.model} (${h.compute_type})\n${diarizationLine}`;
 
   return (
     <span className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400" title={tooltip}>
       <span className="flex items-center gap-1.5">
-        <span className="h-2 w-2 rounded-full bg-emerald-500" />
+        <span className={`h-2 w-2 rounded-full ${h.diarization_error ? "bg-amber-500" : "bg-emerald-500"}`} />
         {m.worker.online}
       </span>
       {h.cuda.available ? (

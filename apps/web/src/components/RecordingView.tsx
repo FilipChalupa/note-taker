@@ -7,7 +7,7 @@ import type { ExportFormat, RecordingDetail } from "@note-taker/shared";
 import { StatusBadge } from "./StatusBadge";
 import { PlayerControls } from "./player/PlayerControls";
 import { usePlayer } from "./player/PlayerProvider";
-import { errorLabel, formatDate, formatDuration, formatTime, groupTurns, phaseLabel, speakerColor, speakerLabel } from "@/lib/format";
+import { errorLabel, formatDate, formatDuration, formatTime, groupTurns, phaseLabel, speakerColor, speakerLabel, warningLabel } from "@/lib/format";
 import { fmt } from "@/lib/i18n";
 import { useI18n } from "@/lib/i18n/client";
 
@@ -145,6 +145,7 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
   };
 
   const retry = async () => {
+    if (rec.status === "COMPLETED" && !confirm(fmt(m.detail.confirmReprocess, { title: rec.title }))) return;
     const r = await fetch(`/api/recordings/${rec.id}/retry`, { method: "POST" });
     if (r.ok) setRec((await r.json()) as RecordingDetail);
   };
@@ -221,6 +222,11 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
               {m.detail.retry}
             </button>
           )}
+          {rec.status === "COMPLETED" && (
+            <button className="btn" onClick={retry} title={m.detail.confirmReprocess.split("?")[0]}>
+              ↻ {m.detail.reprocess}
+            </button>
+          )}
           <button className="btn btn-danger" onClick={remove}>
             {m.detail.delete}
           </button>
@@ -240,6 +246,12 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
           <p className="mt-3 text-xs text-zinc-500">
             {m.detail.autoRefresh}
           </p>
+        </div>
+      )}
+
+      {rec.status === "COMPLETED" && rec.warning && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
+          ⚠ {warningLabel(rec.warning, m)}
         </div>
       )}
 

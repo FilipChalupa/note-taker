@@ -37,6 +37,8 @@ class Settings:
 
     hf_token: str | None = os.getenv("HF_TOKEN") or None
     diarization_enabled: bool = _bool("DIARIZATION_ENABLED", True)
+    # pyannote pipeline on Hugging Face (gated: accept the model terms with the HF_TOKEN account)
+    diarization_model: str = os.getenv("DIARIZATION_MODEL") or "pyannote/speaker-diarization-community-1"
 
     data_dir: Path = Path(os.getenv("WORKER_DATA_DIR", "./data")).resolve()
     task_ttl_hours: int = _int("TASK_TTL_HOURS", 72)

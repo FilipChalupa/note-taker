@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS recordings (
   progress INTEGER NOT NULL DEFAULT 0,
   phase TEXT,
   error TEXT,
+  warning TEXT,
   dispatch_attempts INTEGER NOT NULL DEFAULT 0,
   duration_sec REAL,
   detected_language TEXT,
@@ -45,6 +46,9 @@ function open(): Db {
   sqlite.pragma("synchronous = NORMAL");
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(DDL);
+  // Lightweight forward migrations for databases created by older versions
+  const cols = new Set((sqlite.prepare("PRAGMA table_info(recordings)").all() as { name: string }[]).map((c) => c.name));
+  if (!cols.has("warning")) sqlite.exec("ALTER TABLE recordings ADD COLUMN warning TEXT");
   return drizzle(sqlite, { schema });
 }
 

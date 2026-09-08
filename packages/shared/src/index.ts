@@ -85,6 +85,8 @@ export interface WorkerTaskResult {
   duration: number;
   model: string;
   diarized: boolean;
+  /** Why speakers were not identified; null when diarization succeeded. */
+  diarization_error: string | null;
   /** Distinct speaker ids in order of first appearance. */
   speakers: string[];
   segments: TranscriptSegment[];
@@ -102,6 +104,8 @@ export interface WorkerHealth {
   device: string;
   model_loaded: boolean;
   diarization_enabled: boolean;
+  /** Last diarization failure on the worker, if any. */
+  diarization_error: string | null;
   cuda: {
     available: boolean;
     device_name: string | null;
@@ -133,6 +137,8 @@ export interface RecordingSummary {
   durationSec: number | null;
   speakerCount: number | null;
   error: string | null;
+  /** Non-fatal problem with the result, e.g. "DIARIZATION_FAILED:<reason>". */
+  warning: string | null;
   createdAt: string;
   updatedAt: string;
 }

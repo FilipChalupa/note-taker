@@ -24,6 +24,7 @@ const cs = {
     diarization: "Diarizace",
     on: "zapnuta",
     off: "vypnuta",
+    diarizationFailed: "Diarizace selhala: {detail}",
   },
   status: { QUEUED: "Ve frontě", PROCESSING: "Zpracovává se", COMPLETED: "Hotovo", FAILED: "Chyba" },
   phase: {
@@ -52,6 +53,9 @@ const cs = {
     NETWORK: "Nahrávání selhalo (síťová chyba)",
     HTTP: "Chyba {status}",
     LIST_FAILED: "Nepodařilo se načíst seznam: {msg}",
+  },
+  warnings: {
+    DIARIZATION_FAILED: "Rozpoznání mluvčích selhalo, celý přepis je přiřazen jednomu mluvčímu. Důvod: {detail}",
   },
   list: {
     title: "Nahrávky",
@@ -92,6 +96,8 @@ const cs = {
     speakersCount: "{n} mluvčí",
     export: "Export:",
     retry: "Zkusit znovu",
+    reprocess: "Zpracovat znovu",
+    confirmReprocess: "Znovu přepsat nahrávku „{title}“? Stávající přepis a názvy mluvčích budou nahrazeny.",
     delete: "Smazat",
     processing: "Zpracovává se…",
     autoRefresh: "Stránka se aktualizuje automaticky. Přepis se zobrazí po dokončení; mezitím si můžete nahrávku poslechnout.",
@@ -168,6 +174,7 @@ const en: Messages = {
     diarization: "Diarization",
     on: "enabled",
     off: "disabled",
+    diarizationFailed: "Diarization failing: {detail}",
   },
   status: { QUEUED: "Queued", PROCESSING: "Processing", COMPLETED: "Done", FAILED: "Failed" },
   phase: {
@@ -196,6 +203,9 @@ const en: Messages = {
     NETWORK: "Upload failed (network error)",
     HTTP: "Error {status}",
     LIST_FAILED: "Could not load the list: {msg}",
+  },
+  warnings: {
+    DIARIZATION_FAILED: "Speaker identification failed, the whole transcript is assigned to one speaker. Reason: {detail}",
   },
   list: {
     title: "Recordings",
@@ -236,6 +246,8 @@ const en: Messages = {
     speakersCount: "{n} speakers",
     export: "Export:",
     retry: "Retry",
+    reprocess: "Reprocess",
+    confirmReprocess: "Transcribe “{title}” again? The current transcript and speaker names will be replaced.",
     delete: "Delete",
     processing: "Processing…",
     autoRefresh: "This page refreshes automatically. The transcript appears when processing finishes; you can listen to the recording in the meantime.",

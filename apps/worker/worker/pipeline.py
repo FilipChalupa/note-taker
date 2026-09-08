@@ -16,12 +16,56 @@ log = logging.getLogger("worker.pipeline")
 
 ProgressCb = Callable[[str, int], None]  # (status, progress 0-100)
 
+FALLBACK_DIARIZATION_MODEL = "pyannote/speaker-diarization-3.1"
+_plda_patched = False
+
+
+def _short_error(exc: BaseException) -> str:
+    """First meaningful line of an exception message (HF errors are very verbose)."""
+    text = str(exc).strip()
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    for ln in lines:
+        if "Cannot access gated repo" in ln or "restricted" in ln:
+            return f"{type(exc).__name__}: {ln}"
+    return f"{type(exc).__name__}: {lines[0] if lines else ''}"[:300]
+
+
+def _patch_pyannote_plda() -> None:
+    """pyannote.audio >= 4 always downloads a PLDA from the gated `community-1` repo, even for
+    pipelines (like speaker-diarization-3.1) whose clustering never uses it. Skip it there."""
+    global _plda_patched
+    if _plda_patched:
+        return
+    _plda_patched = True
+    try:
+        from pyannote.audio.pipelines import speaker_diarization as sd
+    except Exception:  # pragma: no cover
+        return
+    if not hasattr(sd, "get_plda"):
+        return
+    original_init = sd.SpeakerDiarization.__init__
+    original_get_plda = sd.get_plda
+
+    def patched_init(self, *args, **kwargs):
+        if kwargs.get("clustering", "VBxClustering") != "VBxClustering":
+            sd.get_plda = lambda *a, **k: None  # type: ignore[assignment]
+            try:
+                return original_init(self, *args, **kwargs)
+            finally:
+                sd.get_plda = original_get_plda
+        return original_init(self, *args, **kwargs)
+
+    sd.SpeakerDiarization.__init__ = patched_init  # type: ignore[method-assign]
+
 
 class Pipeline:
     def __init__(self) -> None:
         self._asr = None
         self._align_cache: dict[str, tuple[object, dict]] = {}
         self._diarizer = None
+        self.diarization_model_loaded: Optional[str] = None
+        # Last reason diarization could not run (surfaced via /health and task results)
+        self.diarization_error: Optional[str] = None
 
     # ---------------------------------------------------------------- loading
     @property
@@ -64,10 +108,36 @@ class Pipeline:
             except ImportError:  # pragma: no cover - older whisperx
                 from whisperx import DiarizationPipeline  # type: ignore
 
-            log.info("Loading pyannote diarization pipeline")
-            self._diarizer = DiarizationPipeline(
-                use_auth_token=settings.hf_token, device=settings.device
-            )
+            _patch_pyannote_plda()
+            candidates = [settings.diarization_model]
+            if settings.diarization_model != FALLBACK_DIARIZATION_MODEL:
+                candidates.append(FALLBACK_DIARIZATION_MODEL)
+            errors: list[str] = []
+            for model in candidates:
+                log.info("Loading pyannote diarization pipeline %s", model)
+                try:
+                    try:
+                        # whisperx >= 3.4 uses `token=`; older releases used `use_auth_token=`
+                        self._diarizer = DiarizationPipeline(model_name=model, token=settings.hf_token, device=settings.device)
+                    except TypeError:
+                        self._diarizer = DiarizationPipeline(
+                            model_name=model, use_auth_token=settings.hf_token, device=settings.device
+                        )
+                except Exception as exc:  # noqa: BLE001
+                    errors.append(f"{model}: {_short_error(exc)}")
+                    log.warning("Diarization model %s unavailable: %s", model, _short_error(exc))
+                    continue
+                if model != settings.diarization_model:
+                    log.warning("Using fallback diarization model %s", model)
+                self.diarization_model_loaded = model
+                break
+            if self._diarizer is None:
+                raise RuntimeError(
+                    "No diarization model could be loaded (" + " | ".join(errors) + "). "
+                    "Accept the model terms with the HF_TOKEN account: "
+                    "https://hf.co/pyannote/speaker-diarization-community-1 or "
+                    "https://hf.co/pyannote/speaker-diarization-3.1 + https://hf.co/pyannote/segmentation-3.0"
+                )
         return self._diarizer
 
     def unload_all(self) -> None:
@@ -120,6 +190,7 @@ class Pipeline:
         progress("TRANSCRIBING", 70)
 
         diarized = False
+        diarization_error: Optional[str] = None
         if settings.diarization_enabled and settings.hf_token:
             progress("DIARIZING", 75)
             try:
@@ -132,10 +203,18 @@ class Pipeline:
                 diarize_segments = diarizer(audio, **kwargs)
                 result = whisperx.assign_word_speakers(diarize_segments, result)
                 diarized = True
+                self.diarization_error = None
             except Exception as exc:  # noqa: BLE001
+                diarization_error = _short_error(exc) if not isinstance(exc, RuntimeError) else str(exc)[:600]
+                self.diarization_error = diarization_error
+                self._diarizer = None  # retry loading next time
                 log.exception("Diarization failed, continuing without speakers: %s", exc)
         elif settings.diarization_enabled and not settings.hf_token:
+            diarization_error = "HF_TOKEN is not set"
+            self.diarization_error = diarization_error
             log.warning("DIARIZATION_ENABLED but HF_TOKEN missing - skipping diarization")
+        else:
+            diarization_error = "Diarization disabled (DIARIZATION_ENABLED=0)"
         progress("DIARIZING", 95)
 
         segments = _postprocess_segments(result.get("segments", []), diarized)
@@ -154,6 +233,7 @@ class Pipeline:
         return {
             "language": detected_language,
             "diarized": diarized,
+            "diarization_error": diarization_error,
             "speakers": speakers,
             "segments": segments,
         }
