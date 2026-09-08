@@ -37,6 +37,8 @@ export interface TranscribeAccepted {
 /** Response of `GET /tasks/{id}/status`. */
 export interface WorkerTaskStatusResponse {
   task_id: string;
+  /** Original upload filename as seen by the worker. */
+  filename: string | null;
   status: WorkerTaskStatus;
   /** 0-100 */
   progress: number;
@@ -44,6 +46,13 @@ export interface WorkerTaskStatusResponse {
   phase: string;
   queue_position: number | null;
   error: string | null;
+  /** Audio length in seconds, known right after upload. */
+  duration: number | null;
+  /** Estimated seconds until COMPLETED (includes queue wait for queued tasks). */
+  eta_seconds: number | null;
+  expected_finish_at: string | null;
+  /** Expected processing speed of the current phase as a multiple of real time. */
+  speed_rtf: number | null;
   created_at: string;
   started_at: string | null;
   finished_at: string | null;
@@ -137,3 +146,33 @@ export interface RecordingDetail extends RecordingSummary {
 }
 
 export type ExportFormat = "md" | "txt" | "srt" | "vtt";
+
+/** One entry of the worker queue as shown by the web app (`GET /api/worker/queue`). */
+export interface QueueItem {
+  taskId: string | null;
+  status: WorkerTaskStatus;
+  progress: number;
+  phase: string | null;
+  /** 0 = processing now, 1.. = waiting; null = not yet handed to the worker */
+  queuePosition: number | null;
+  filename: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  durationSec: number | null;
+  etaSeconds: number | null;
+  expectedFinishAt: string | null;
+  speedRtf: number | null;
+  /** Local recording this task belongs to (null if submitted by another client). */
+  recording: { id: string; title: string } | null;
+}
+
+export interface QueueResponse {
+  reachable: boolean;
+  error?: string;
+  /** Task currently on the GPU. */
+  current: QueueItem | null;
+  /** Tasks waiting inside the worker, in order. */
+  pending: QueueItem[];
+  /** Local recordings not yet accepted by the worker (worker offline / retrying). */
+  waiting: QueueItem[];
+}

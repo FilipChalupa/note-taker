@@ -44,6 +44,8 @@ class Settings:
     # Audio normalization target
     sample_rate: int = 16_000
     audio_codec: str = "mp3"  # "mp3" (small, streamable) or "wav"
+    # "dynaudnorm" (cheap, default), "loudnorm" (EBU R128, ~3x slower, single-threaded) or "off"
+    loudness: str = (os.getenv("LOUDNESS_NORMALIZATION", "dynaudnorm") or "off").strip().lower()
 
     @property
     def tasks_dir(self) -> Path:

@@ -67,6 +67,8 @@ export const workerClient = {
 
   status: (taskId: string) => request<WorkerTaskStatusResponse>(`/tasks/${taskId}/status`),
 
+  listTasks: (activeOnly = true) => request<WorkerTaskStatusResponse[]>(`/tasks?active_only=${activeOnly}`),
+
   async result(taskId: string): Promise<WorkerTaskResult | null> {
     const url = `${config.workerApiUrl}/tasks/${taskId}/result`;
     const res = await fetch(url, { headers: headers(), cache: "no-store", signal: AbortSignal.timeout(60_000) });

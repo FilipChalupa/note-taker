@@ -5,13 +5,13 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ExportFormat, RecordingDetail } from "@note-taker/shared";
 import { StatusBadge } from "./StatusBadge";
+import { PlayerControls } from "./player/PlayerControls";
+import { usePlayer } from "./player/PlayerProvider";
 import { errorLabel, formatDate, formatDuration, formatTime, groupTurns, phaseLabel, speakerColor, speakerLabel } from "@/lib/format";
 import { fmt } from "@/lib/i18n";
 import { useI18n } from "@/lib/i18n/client";
 
 const POLL_MS = 2500;
-const RATES = [1, 1.25, 1.5, 1.75, 2] as const;
-const SKIP_SEC = 5;
 const EXPORTS: ExportFormat[] = ["md", "txt", "srt", "vtt"];
 
 export function RecordingView({ initial }: { initial: RecordingDetail }) {
@@ -37,56 +37,50 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
   }, [inflight, refresh]);
 
   // ---------------------------------------------------------------- player
-  const audioRef = useRef<HTMLAudioElement>(null);
-  const [playing, setPlaying] = useState(false);
-  const [rate, setRate] = useState<number>(1);
-  const [time, setTime] = useState(0);
-  const [duration, setDuration] = useState(rec.durationSec ?? 0);
+  // The <audio> element lives in the global PlayerProvider so playback survives navigation.
+  const player = usePlayer();
+  const isCurrent = player.track?.id === rec.id;
+  const playing = isCurrent && player.playing;
+  const time = isCurrent ? player.time : 0;
+  const duration = isCurrent && player.duration ? player.duration : (rec.durationSec ?? 0);
   const [follow, setFollow] = useState(true);
 
-  const seekTo = useCallback((t: number, play = false) => {
-    const a = audioRef.current;
-    if (!a) return;
-    a.currentTime = Math.max(0, Math.min(t, a.duration || t));
-    setTime(a.currentTime);
-    if (play) void a.play();
-  }, []);
+  const track = useMemo(
+    () => (rec.audioUrl ? { id: rec.id, title: rec.title, src: rec.audioUrl, duration: rec.durationSec } : null),
+    [rec.id, rec.title, rec.audioUrl, rec.durationSec],
+  );
+
+  const seekTo = useCallback(
+    (t: number, play = false) => {
+      if (!track) return;
+      if (isCurrent) {
+        player.seek(t);
+        if (play) player.play();
+      } else {
+        player.load(track, { startAt: t, autoplay: play });
+      }
+    },
+    [track, isCurrent, player],
+  );
 
   const toggle = useCallback(() => {
-    const a = audioRef.current;
-    if (!a) return;
-    if (a.paused) void a.play();
-    else a.pause();
-  }, []);
+    if (!track) return;
+    if (isCurrent) player.toggle();
+    else player.load(track, { autoplay: true });
+  }, [track, isCurrent, player]);
 
-  const skip = useCallback((delta: number) => {
-    const a = audioRef.current;
-    if (a) seekTo(a.currentTime + delta);
-  }, [seekTo]);
+  const skip = useCallback(
+    (delta: number) => {
+      if (isCurrent) player.skip(delta);
+      else seekTo(Math.max(0, delta), false);
+    },
+    [isCurrent, player, seekTo],
+  );
 
+  // Keep the global bar's title in sync when the recording is renamed
   useEffect(() => {
-    const a = audioRef.current;
-    if (a) a.playbackRate = rate;
-  }, [rate, rec.audioUrl]);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
-      if (e.code === "Space") {
-        e.preventDefault();
-        toggle();
-      } else if (e.key === "ArrowLeft") {
-        e.preventDefault();
-        skip(-SKIP_SEC);
-      } else if (e.key === "ArrowRight") {
-        e.preventDefault();
-        skip(SKIP_SEC);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [toggle, skip]);
+    if (isCurrent && track && player.track?.title !== track.title) player.load(track);
+  }, [isCurrent, track, player]);
 
   // -------------------------------------------------------------- transcript
   const turns = useMemo(() => groupTurns(rec.segments), [rec.segments]);
@@ -253,54 +247,15 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
 
       {rec.audioUrl && (
         <div className="card sticky top-2 z-10 p-4">
-          <audio
-            ref={audioRef}
-            src={rec.audioUrl}
-            preload="metadata"
-            onPlay={() => setPlaying(true)}
-            onPause={() => setPlaying(false)}
-            onTimeUpdate={(e) => setTime(e.currentTarget.currentTime)}
-            onLoadedMetadata={(e) => {
-              setDuration(e.currentTarget.duration);
-              e.currentTarget.playbackRate = rate;
-            }}
-            onEnded={() => setPlaying(false)}
-          />
-          <div className="flex flex-wrap items-center gap-2">
-            <button className="btn" onClick={() => skip(-SKIP_SEC)} title={m.detail.back5}>
-              ⏪ 5 s
-            </button>
-            <button className="btn btn-primary w-24 justify-center" onClick={toggle} title={m.detail.playPauseHint}>
-              {playing ? m.detail.pause : m.detail.play}
-            </button>
-            <button className="btn" onClick={() => skip(SKIP_SEC)} title={m.detail.fwd5}>
-              5 s ⏩
-            </button>
-            <div className="ml-1 flex items-center gap-0.5 rounded-md border border-zinc-300 p-0.5 dark:border-zinc-700">
-              {RATES.map((r) => (
-                <button
-                  key={r}
-                  onClick={() => setRate(r)}
-                  className={`rounded px-2 py-1 text-xs font-medium ${
-                    rate === r ? "bg-blue-600 text-white" : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                  }`}
-                >
-                  {r}×
-                </button>
-              ))}
-            </div>
-            <span className="ml-auto whitespace-nowrap font-mono text-sm tabular-nums text-zinc-600 dark:text-zinc-400">
-              {formatTime(time)} / {formatTime(duration)}
-            </span>
-          </div>
-          <input
-            type="range"
-            min={0}
-            max={duration || 0}
-            step={0.1}
-            value={Math.min(time, duration || 0)}
-            onChange={(e) => seekTo(Number(e.target.value))}
-            className="mt-3 w-full accent-blue-600"
+          <PlayerControls
+            playing={playing}
+            time={time}
+            duration={duration}
+            rate={player.rate}
+            onToggle={toggle}
+            onSkip={skip}
+            onSeek={(t) => seekTo(t)}
+            onRate={player.setRate}
           />
         </div>
       )}

@@ -53,6 +53,7 @@ If the worker is exposed to the network, set `WORKER_API_KEY` (and the same valu
 | `COMPUTE_TYPE` | `int8_float16` | `float16` for max accuracy, `int8` for minimum VRAM |
 | `DEVICE` | `cuda` | `cpu` to run without a GPU (very slow) |
 | `BATCH_SIZE` | `8` | lower it on OOM |
+| `LOUDNESS_NORMALIZATION` | `dynaudnorm` | loudness filter during conversion: `dynaudnorm` (fast), `loudnorm` (EBU R128, slower), `off` |
 | `DEFAULT_LANGUAGE` | `cs` | used when the request has no language; empty = auto-detect |
 | `HF_TOKEN` | – | pyannote token |
 | `DIARIZATION_ENABLED` | `1` | `0` disables diarization |
@@ -66,6 +67,8 @@ If the worker is exposed to the network, set `WORKER_API_KEY` (and the same valu
 - **GPU OOM** – lower `BATCH_SIZE`, use `large-v3-turbo` or `COMPUTE_TYPE=int8`.
 - **Diarization returns `UNKNOWN`** – segments with no overlap with the diarization output; try passing `min_speakers`/`max_speakers`.
 - **Slow start** – models stay loaded in VRAM between tasks; the first task after startup takes longer.
+- **"Converting audio" barely uses CPU/GPU** – expected: this phase is ffmpeg audio decoding, single-threaded and CPU-only (≈ 1 core). The GPU is used from the transcription phase on.
+- **ETA / speed estimates** – `/tasks/{id}/status` reports `eta_seconds`, `expected_finish_at` and `speed_rtf` based on a moving average of previous tasks (`data/stats.json`); the first tasks use conservative defaults.
 
 ## Docker (alternative)
 

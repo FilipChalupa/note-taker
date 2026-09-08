@@ -32,11 +32,19 @@ def probe_duration(path: Path) -> float:
         raise AudioError(f"Could not read duration: {exc}") from exc
 
 
-def normalize(src: Path, dst: Path, sample_rate: int = 16_000, codec: str = "mp3") -> Path:
+LOUDNESS_FILTERS = {
+    "loudnorm": "loudnorm=I=-16:TP=-1.5:LRA=11",   # EBU R128, accurate but slow (single thread)
+    "dynaudnorm": "dynaudnorm=f=250:g=15",         # fast streaming normalizer
+    "off": None,
+}
+
+
+def normalize(src: Path, dst: Path, sample_rate: int = 16_000, codec: str = "mp3", loudness: str = "dynaudnorm") -> Path:
     """Convert *src* (any container: m4a, ogg, wav, aac, mp4, mkv...) to mono 16 kHz.
 
     codec="mp3" -> libmp3lame 64 kbps (small, browser friendly)
     codec="wav" -> pcm_s16le
+    Audio decoding/filtering in ffmpeg is single-threaded, so this phase uses ~1 CPU core and no GPU.
     """
     dst.parent.mkdir(parents=True, exist_ok=True)
     common = [
@@ -45,8 +53,10 @@ def normalize(src: Path, dst: Path, sample_rate: int = 16_000, codec: str = "mp3
         "-vn", "-sn", "-dn",          # drop video / subtitles / data streams
         "-ac", "1",                  # mono
         "-ar", str(sample_rate),     # 16 kHz
-        "-af", "loudnorm=I=-16:TP=-1.5:LRA=11",
     ]
+    af = LOUDNESS_FILTERS.get(loudness, LOUDNESS_FILTERS["dynaudnorm"])
+    if af:
+        common += ["-af", af]
     if codec == "wav":
         cmd = common + ["-c:a", "pcm_s16le", str(dst)]
     else:

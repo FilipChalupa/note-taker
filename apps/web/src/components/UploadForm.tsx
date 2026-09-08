@@ -1,11 +1,12 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { RecordingDetail } from "@note-taker/shared";
 import { errorLabel, LANGUAGE_CODES } from "@/lib/format";
 import { fmt } from "@/lib/i18n";
 import { useI18n } from "@/lib/i18n/client";
+import { useDroppedFile } from "./DropProvider";
 
 const ACCEPT = ".mp3,.mpga,.m4a,.m4b,.wav,.aac,.ogg,.oga,.opus,.flac,.wma,.aif,.aiff,.mka,.webm,.mp4,.m4v,.mov,.mkv,.avi,.mpg,.mpeg,.ts,.3gp,.amr,audio/*,video/*";
 
@@ -18,13 +19,13 @@ function fmtBytes(b: number): string {
 export function UploadForm({ defaultLanguage, maxUploadBytes }: { defaultLanguage: string; maxUploadBytes: number }) {
   const { m } = useI18n();
   const router = useRouter();
+  const { takePendingFile } = useDroppedFile();
   const inputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState("");
   const [language, setLanguage] = useState(defaultLanguage);
   const [minSpeakers, setMinSpeakers] = useState("");
   const [maxSpeakers, setMaxSpeakers] = useState("");
-  const [dragging, setDragging] = useState(false);
   const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -41,6 +42,17 @@ export function UploadForm({ defaultLanguage, maxUploadBytes }: { defaultLanguag
     },
     [maxUploadBytes, title, m],
   );
+
+  // File dropped anywhere in the app (DropProvider) - on mount and on later drops while on this page
+  useEffect(() => {
+    const consume = () => {
+      const f = takePendingFile();
+      if (f) pick(f);
+    };
+    consume();
+    window.addEventListener("note-taker:file-dropped", consume);
+    return () => window.removeEventListener("note-taker:file-dropped", consume);
+  }, [takePendingFile, pick]);
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -90,22 +102,8 @@ export function UploadForm({ defaultLanguage, maxUploadBytes }: { defaultLanguag
   return (
     <form onSubmit={submit} className="card space-y-5 p-6">
       <div
-        onDragOver={(e) => {
-          e.preventDefault();
-          setDragging(true);
-        }}
-        onDragLeave={() => setDragging(false)}
-        onDrop={(e) => {
-          e.preventDefault();
-          setDragging(false);
-          pick(e.dataTransfer.files?.[0]);
-        }}
         onClick={() => inputRef.current?.click()}
-        className={`flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed px-6 py-10 text-center transition ${
-          dragging
-            ? "border-blue-500 bg-blue-50 dark:bg-blue-950/40"
-            : "border-zinc-300 hover:border-zinc-400 dark:border-zinc-700 dark:hover:border-zinc-500"
-        }`}
+        className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-zinc-300 px-6 py-10 text-center transition hover:border-zinc-400 dark:border-zinc-700 dark:hover:border-zinc-500"
       >
         <input ref={inputRef} type="file" accept={ACCEPT} className="hidden" onChange={(e) => pick(e.target.files?.[0])} />
         {file ? (

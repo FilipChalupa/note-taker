@@ -22,6 +22,7 @@ from . import audio as audio_utils
 from .config import settings
 from .models import TaskStatus
 from .pipeline import pipeline
+from .stats import stats
 
 log = logging.getLogger("worker.queue")
 
@@ -55,6 +56,8 @@ class Task:
     duration: Optional[float] = None
     input_path: Optional[str] = None
     audio_path: Optional[str] = None
+    phase_started_at: Optional[str] = None
+    phase_seconds: dict = field(default_factory=dict)  # measured wall time per finished phase
 
     @property
     def dir(self) -> Path:
@@ -140,6 +143,10 @@ class TaskQueue:
         final_input = task.dir / f"input{input_path.suffix.lower() or '.bin'}"
         shutil.move(str(input_path), final_input)
         task.input_path = str(final_input)
+        try:
+            task.duration = audio_utils.probe_duration(final_input)
+        except audio_utils.AudioError as exc:
+            log.warning("Could not probe duration of %s: %s", original_filename, exc)
         with self._lock:
             self._tasks[task.id] = task
             self._order.append(task.id)
@@ -159,6 +166,10 @@ class TaskQueue:
             if task_id in self._order:
                 return self._order.index(task_id) + 1
             return None
+
+    def all_tasks(self) -> list[Task]:
+        with self._lock:
+            return list(self._tasks.values())
 
     def pending(self) -> int:
         with self._lock:
@@ -188,9 +199,90 @@ class TaskQueue:
 
     def _update(self, task: Task, status: TaskStatus, progress: int) -> None:
         with self._lock:
+            if status != task.status:
+                now_dt = datetime.now(timezone.utc)
+                if task.phase_started_at and not task.status.terminal and task.status != TaskStatus.QUEUED:
+                    elapsed = (now_dt - datetime.fromisoformat(task.phase_started_at)).total_seconds()
+                    task.phase_seconds[task.status.value] = round(elapsed, 3)
+                    if task.status.value in ("CONVERTING", "TRANSCRIBING", "DIARIZING"):
+                        stats.record(task.status.value, task.duration, elapsed)
+                task.phase_started_at = now_dt.isoformat()
             task.status = status
             task.progress = max(task.progress, progress) if not status.terminal else progress
             self._persist(task)
+
+    # ------------------------------------------------------------- estimates
+    def _phases(self) -> list[str]:
+        phases = ["CONVERTING", "TRANSCRIBING"]
+        if settings.diarization_enabled and settings.hf_token:
+            phases.append("DIARIZING")
+        return phases
+
+    def _expected_total(self, task: Task) -> Optional[float]:
+        if task.duration is None:
+            return None
+        return sum(stats.expected_seconds(p, task.duration) or 0.0 for p in self._phases())
+
+    def _remaining_seconds(self, task: Task) -> Optional[float]:
+        """Remaining processing time of a running task (None if unknown)."""
+        if task.status.terminal:
+            return 0.0
+        total = self._expected_total(task)
+        if total is None:
+            return None
+        if task.status == TaskStatus.QUEUED:
+            return total
+        done = 0.0
+        for p in self._phases():
+            exp = stats.expected_seconds(p, task.duration) or 0.0
+            if p == task.status.value:
+                elapsed = 0.0
+                if task.phase_started_at:
+                    elapsed = (datetime.now(timezone.utc) - datetime.fromisoformat(task.phase_started_at)).total_seconds()
+                done += min(elapsed, exp * 0.97)
+                break
+            done += task.phase_seconds.get(p, exp)
+        return max(0.0, total - done)
+
+    def estimate(self, task: Task) -> dict:
+        """Smooth progress + ETA for a task, including queue wait for queued tasks."""
+        remaining = self._remaining_seconds(task)
+        total = self._expected_total(task)
+        progress = task.progress
+        if task.status.terminal:
+            progress = 100 if task.status == TaskStatus.COMPLETED else task.progress
+        elif task.status != TaskStatus.QUEUED and total and remaining is not None:
+            progress = int(round(3 + 95 * (1 - remaining / total)))
+            progress = max(task.progress if task.status == TaskStatus.CONVERTING else 3, min(98, progress))
+
+        wait = 0.0
+        if task.status == TaskStatus.QUEUED:
+            with self._lock:
+                ahead = self._order[: self._order.index(task.id)] if task.id in self._order else []
+                current = self._tasks.get(self._current) if self._current else None
+            if current is not None:
+                r = self._remaining_seconds(current)
+                wait += r if r is not None else 0.0
+            for tid in ahead:
+                t = self._tasks.get(tid)
+                if t is not None:
+                    wait += self._expected_total(t) or 0.0
+
+        eta = None if remaining is None else remaining + wait
+        finish_at = None
+        if eta is not None and not task.status.terminal:
+            finish_at = (datetime.now(timezone.utc) + timedelta(seconds=eta)).isoformat()
+        speed = None
+        if task.status.value in stats.rtf:
+            speed = stats.rtf[task.status.value]
+        elif task.status == TaskStatus.QUEUED and task.duration:
+            speed = task.duration / total if total else None
+        return {
+            "progress": progress,
+            "eta_seconds": None if eta is None else round(eta),
+            "expected_finish_at": finish_at,
+            "speed_rtf": None if speed is None else round(speed, 1),
+        }
 
     def _loop(self) -> None:
         log.info("GPU worker thread started")
@@ -224,7 +316,7 @@ class TaskQueue:
         src = Path(task.input_path)  # type: ignore[arg-type]
         ext = "wav" if settings.audio_codec == "wav" else "mp3"
         dst = task.dir / f"audio.{ext}"
-        audio_utils.normalize(src, dst, settings.sample_rate, settings.audio_codec)
+        audio_utils.normalize(src, dst, settings.sample_rate, settings.audio_codec, settings.loudness)
         task.audio_path = str(dst)
         task.duration = audio_utils.probe_duration(dst)
         self._update(task, TaskStatus.CONVERTING, 15)

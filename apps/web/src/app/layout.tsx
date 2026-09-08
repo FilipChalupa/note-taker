@@ -4,6 +4,9 @@ import "./globals.css";
 import { WorkerStatus } from "@/components/WorkerStatus";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { I18nProvider } from "@/lib/i18n/client";
+import { PlayerProvider } from "@/components/player/PlayerProvider";
+import { GlobalPlayerBar } from "@/components/player/GlobalPlayerBar";
+import { DropProvider } from "@/components/DropProvider";
 import { getMessages } from "@/lib/i18n/server";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -23,6 +26,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <html lang={locale}>
       <body>
         <I18nProvider locale={locale}>
+          <PlayerProvider>
+          <DropProvider>
           <header className="border-b border-zinc-200 bg-white/80 backdrop-blur dark:border-zinc-800 dark:bg-zinc-900/80">
             <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-3">
               <nav className="flex items-center gap-4">
@@ -42,7 +47,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               </div>
             </div>
           </header>
-          <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>
+          <main className="mx-auto max-w-6xl px-4 py-6 pb-28">{children}</main>
+          <GlobalPlayerBar />
+          </DropProvider>
+          </PlayerProvider>
         </I18nProvider>
       </body>
     </html>

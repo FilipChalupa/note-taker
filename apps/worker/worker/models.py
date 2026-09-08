@@ -28,11 +28,19 @@ class TranscribeAccepted(BaseModel):
 
 class TaskStatusResponse(BaseModel):
     task_id: str
+    filename: Optional[str] = None
     status: TaskStatus
     progress: int = Field(ge=0, le=100)
     phase: str
     queue_position: Optional[int] = None
     error: Optional[str] = None
+    # Audio length in seconds (known right after upload via ffprobe)
+    duration: Optional[float] = None
+    # Estimated remaining seconds until COMPLETED (includes queue wait for queued tasks)
+    eta_seconds: Optional[int] = None
+    expected_finish_at: Optional[str] = None
+    # Expected processing speed of the current phase, as multiple of real time
+    speed_rtf: Optional[float] = None
     created_at: str
     started_at: Optional[str] = None
     finished_at: Optional[str] = None

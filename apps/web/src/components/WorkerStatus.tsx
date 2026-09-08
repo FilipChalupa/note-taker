@@ -1,11 +1,18 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { WorkerHealth } from "@note-taker/shared";
 import { fmt } from "@/lib/i18n";
 import { useI18n } from "@/lib/i18n/client";
 
 type Resp = { reachable: boolean; url: string; health?: WorkerHealth; error?: string };
+
+/** Short GPU name: "NVIDIA GeForce RTX 3080" -> "RTX 3080" */
+function shortGpuName(name: string | null): string {
+  if (!name) return "";
+  return name.replace(/^NVIDIA\s+/i, "").replace(/^GeForce\s+/i, "").trim();
+}
 
 export function WorkerStatus() {
   const { m } = useI18n();
@@ -40,22 +47,38 @@ export function WorkerStatus() {
     );
   }
   const h = state.health!;
-  const gpu = h.cuda.available
+  const gpuDetail = h.cuda.available
     ? `${h.cuda.device_name} · ${h.cuda.vram_used_mb ?? "?"}/${h.cuda.vram_total_mb ?? "?"} MB VRAM`
     : m.worker.cpu;
   const queued = h.queue.pending + (h.queue.current_task_id ? 1 : 0);
+  const tooltip = `${state.url}\n${gpuDetail}\n${m.worker.model}: ${h.model} (${h.compute_type})\n${m.worker.diarization}: ${h.diarization_enabled ? m.worker.on : m.worker.off}`;
+
   return (
-    <span
-      className="flex items-center gap-1.5 text-xs text-zinc-600 dark:text-zinc-400"
-      title={`${state.url}\n${gpu}\n${m.worker.model}: ${h.model} (${h.compute_type})\n${m.worker.diarization}: ${h.diarization_enabled ? m.worker.on : m.worker.off}`}
-    >
-      <span className={`h-2 w-2 rounded-full ${h.cuda.available ? "bg-emerald-500" : "bg-amber-500"}`} />
-      {m.worker.online}
-      {queued > 0 && (
-        <span className="rounded bg-blue-100 px-1.5 text-blue-800 dark:bg-blue-900 dark:text-blue-200">
-          {fmt(m.worker.inQueue, { n: queued })}
+    <span className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400" title={tooltip}>
+      <span className="flex items-center gap-1.5">
+        <span className="h-2 w-2 rounded-full bg-emerald-500" />
+        {m.worker.online}
+      </span>
+      {h.cuda.available ? (
+        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700 ring-1 ring-inset ring-emerald-300 dark:bg-emerald-950 dark:text-emerald-300 dark:ring-emerald-800">
+          ⚡ {m.worker.gpu}
+          <span className="hidden font-normal sm:inline">· {shortGpuName(h.cuda.device_name)}</span>
+        </span>
+      ) : (
+        <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 font-medium text-amber-700 ring-1 ring-inset ring-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:ring-amber-800">
+          {m.worker.cpuChip}
         </span>
       )}
+      <Link
+        href="/queue"
+        className={
+          queued > 0
+            ? "rounded bg-blue-100 px-1.5 py-0.5 text-blue-800 hover:bg-blue-200 dark:bg-blue-900 dark:text-blue-200 dark:hover:bg-blue-800"
+            : "rounded bg-zinc-100 px-1.5 py-0.5 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+        }
+      >
+        {queued > 0 ? fmt(m.worker.inQueue, { n: queued }) : m.worker.queueEmpty}
+      </Link>
     </span>
   );
 }

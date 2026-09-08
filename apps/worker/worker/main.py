@@ -60,13 +60,19 @@ def _get_task_or_404(task_id: str):
 
 
 def _status_response(task) -> TaskStatusResponse:
+    est = task_queue.estimate(task)
     return TaskStatusResponse(
         task_id=task.id,
+        filename=task.original_filename,
         status=task.status,
-        progress=task.progress,
+        progress=est["progress"],
         phase=PHASE_LABEL[task.status],
         queue_position=task_queue.queue_position(task.id),
         error=task.error,
+        duration=task.duration,
+        eta_seconds=est["eta_seconds"],
+        expected_finish_at=est["expected_finish_at"],
+        speed_rtf=est["speed_rtf"],
         created_at=task.created_at,
         started_at=task.started_at,
         finished_at=task.finished_at,
@@ -150,8 +156,13 @@ async def transcribe(
 
 
 @app.get("/tasks", dependencies=auth)
-def list_tasks() -> list[TaskStatusResponse]:
-    return [_status_response(t) for t in task_queue._tasks.values()]  # noqa: SLF001
+def list_tasks(active_only: bool = False) -> list[TaskStatusResponse]:
+    """All known tasks; `active_only=true` returns just the current + queued ones, queue order first."""
+    items = [_status_response(t) for t in task_queue.all_tasks()]
+    if active_only:
+        items = [i for i in items if not i.status.terminal]
+    items.sort(key=lambda i: (i.queue_position if i.queue_position is not None else 10**9, i.created_at))
+    return items
 
 
 @app.get("/tasks/{task_id}/status", response_model=TaskStatusResponse, dependencies=auth)
