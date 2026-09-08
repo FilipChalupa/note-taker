@@ -1,0 +1,10 @@
+{
+  "name": "@note-taker/worker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "WhisperX GPU transcription worker (Python). This package.json only exists for workspace ergonomics.",
+  "scripts": {
+    "setup": "bash setup-wsl.sh",
+    "dev": "bash run.sh"
+  }
+}

@@ -1,0 +1,56 @@
+# Run BOTH services on one machine with an NVIDIA GPU (requires nvidia-container-toolkit).
+#   cp apps/worker/.env.example apps/worker/.env   # set HF_TOKEN
+#   docker compose -f docker-compose.all.yml up -d --build
+services:
+  worker:
+    build:
+      context: ./apps/worker
+    image: note-taker-worker:latest
+    container_name: note-taker-worker
+    restart: unless-stopped
+    env_file:
+      - ./apps/worker/.env
+    environment:
+      WORKER_DATA_DIR: /data
+      HF_HOME: /models
+    volumes:
+      - worker-data:/data
+      - worker-models:/models
+    ports:
+      - "${WORKER_PORT:-8000}:8000"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request;urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    image: note-taker-web:latest
+    container_name: note-taker-web
+    restart: unless-stopped
+    depends_on:
+      - worker
+    environment:
+      WORKER_API_URL: http://worker:8000
+      WORKER_API_KEY: ${WORKER_API_KEY:-}
+      DATA_DIR: /data
+      DEFAULT_LANGUAGE: ${DEFAULT_LANGUAGE:-cs}
+    volumes:
+      - web-data:/data
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+
+volumes:
+  worker-data:
+  worker-models:
+  web-data:

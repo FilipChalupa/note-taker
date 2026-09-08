@@ -1,0 +1,37 @@
+# Node
+node_modules/
+.next/
+out/
+dist/
+*.tsbuildinfo
+.turbo/
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.egg-info/
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Data / runtime
+apps/web/data/
+apps/worker/data/
+apps/worker/models/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/
+
+# Hugging Face cache if it ever lands inside the repo
+apps/worker/hub/
+apps/worker/xet/

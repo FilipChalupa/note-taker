@@ -1,0 +1,19 @@
+# Homelab deployment of the web UI only. The GPU worker runs elsewhere (WSL2 PC).
+#   cd apps/web && cp .env.example .env   # set WORKER_API_URL
+#   docker compose up -d --build
+services:
+  web:
+    build:
+      context: ../..
+      dockerfile: apps/web/Dockerfile
+    image: note-taker-web:latest
+    container_name: note-taker-web
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    env_file:
+      - .env
+    environment:
+      DATA_DIR: /data
+    volumes:
+      - ./data:/data

@@ -1,0 +1,394 @@
+"use client";
+
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ExportFormat, RecordingDetail } from "@note-taker/shared";
+import { StatusBadge } from "./StatusBadge";
+import { formatDate, formatDuration, formatTime, groupTurns, speakerColor, speakerLabel, LANGUAGES } from "@/lib/format";
+
+const POLL_MS = 2500;
+const RATES = [1, 1.25, 1.5, 1.75, 2] as const;
+const SKIP_SEC = 5;
+const EXPORTS: Array<{ format: ExportFormat; label: string }> = [
+  { format: "md", label: "Markdown" },
+  { format: "txt", label: "Čistý text" },
+  { format: "srt", label: "SRT" },
+  { format: "vtt", label: "VTT" },
+];
+
+export function RecordingView({ initial }: { initial: RecordingDetail }) {
+  const router = useRouter();
+  const [rec, setRec] = useState(initial);
+  const inflight = rec.status === "QUEUED" || rec.status === "PROCESSING";
+
+  // ---------------------------------------------------------------- polling
+  const refresh = useCallback(async () => {
+    const r = await fetch(`/api/recordings/${initial.id}`, { cache: "no-store" });
+    if (r.status === 404) {
+      router.push("/");
+      return;
+    }
+    if (r.ok) setRec((await r.json()) as RecordingDetail);
+  }, [initial.id, router]);
+
+  useEffect(() => {
+    if (!inflight) return;
+    const t = setInterval(refresh, POLL_MS);
+    return () => clearInterval(t);
+  }, [inflight, refresh]);
+
+  // ---------------------------------------------------------------- player
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [playing, setPlaying] = useState(false);
+  const [rate, setRate] = useState<number>(1);
+  const [time, setTime] = useState(0);
+  const [duration, setDuration] = useState(rec.durationSec ?? 0);
+  const [follow, setFollow] = useState(true);
+
+  const seekTo = useCallback((t: number, play = false) => {
+    const a = audioRef.current;
+    if (!a) return;
+    a.currentTime = Math.max(0, Math.min(t, a.duration || t));
+    setTime(a.currentTime);
+    if (play) void a.play();
+  }, []);
+
+  const toggle = useCallback(() => {
+    const a = audioRef.current;
+    if (!a) return;
+    if (a.paused) void a.play();
+    else a.pause();
+  }, []);
+
+  const skip = useCallback((delta: number) => {
+    const a = audioRef.current;
+    if (a) seekTo(a.currentTime + delta);
+  }, [seekTo]);
+
+  useEffect(() => {
+    const a = audioRef.current;
+    if (a) a.playbackRate = rate;
+  }, [rate, rec.audioUrl]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
+      if (e.code === "Space") {
+        e.preventDefault();
+        toggle();
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        skip(-SKIP_SEC);
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        skip(SKIP_SEC);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [toggle, skip]);
+
+  // -------------------------------------------------------------- transcript
+  const turns = useMemo(() => groupTurns(rec.segments), [rec.segments]);
+  const activeIndex = useMemo(() => {
+    const segs = rec.segments;
+    if (segs.length === 0) return -1;
+    // binary search for last segment with start <= time
+    let lo = 0;
+    let hi = segs.length - 1;
+    let idx = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (segs[mid].start <= time) {
+        idx = mid;
+        lo = mid + 1;
+      } else hi = mid - 1;
+    }
+    return idx >= 0 && time <= segs[idx].end + 0.6 ? idx : -1;
+  }, [rec.segments, time]);
+
+  const activeRef = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (!follow || !playing || !activeRef.current) return;
+    activeRef.current.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [activeIndex, follow, playing]);
+
+  // ---------------------------------------------------------------- editing
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState(rec.title);
+  const [names, setNames] = useState<Record<string, string>>(rec.speakerNames);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => setNames(rec.speakerNames), [rec.speakerNames]);
+
+  const patch = async (body: { title?: string; speakerNames?: Record<string, string> }) => {
+    setSaving(true);
+    try {
+      const r = await fetch(`/api/recordings/${rec.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (r.ok) setRec((await r.json()) as RecordingDetail);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveTitle = async () => {
+    setEditingTitle(false);
+    if (titleDraft.trim() && titleDraft.trim() !== rec.title) await patch({ title: titleDraft });
+  };
+
+  const saveNames = async () => {
+    if (JSON.stringify(names) !== JSON.stringify(rec.speakerNames)) await patch({ speakerNames: names });
+  };
+
+  const remove = async () => {
+    if (!confirm(`Smazat nahrávku „${rec.title}“ včetně přepisu?`)) return;
+    const r = await fetch(`/api/recordings/${rec.id}`, { method: "DELETE" });
+    if (r.ok) router.push("/");
+  };
+
+  const retry = async () => {
+    const r = await fetch(`/api/recordings/${rec.id}/retry`, { method: "POST" });
+    if (r.ok) setRec((await r.json()) as RecordingDetail);
+  };
+
+  const label = (id: string) => speakerLabel(id, rec.speakers, names);
+  const langLabel = LANGUAGES.find((l) => l.code === rec.language)?.label ?? rec.language;
+
+  // ------------------------------------------------------------------ render
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <Link href="/" className="text-sm text-zinc-500 hover:underline">
+            ← Nahrávky
+          </Link>
+          {editingTitle ? (
+            <input
+              autoFocus
+              className="input mt-1 text-xl font-semibold"
+              value={titleDraft}
+              onChange={(e) => setTitleDraft(e.target.value)}
+              onBlur={saveTitle}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void saveTitle();
+                if (e.key === "Escape") {
+                  setTitleDraft(rec.title);
+                  setEditingTitle(false);
+                }
+              }}
+            />
+          ) : (
+            <h1
+              className="mt-1 cursor-text truncate text-2xl font-semibold hover:opacity-80"
+              title="Kliknutím přejmenujete"
+              onClick={() => {
+                setTitleDraft(rec.title);
+                setEditingTitle(true);
+              }}
+            >
+              {rec.title}
+            </h1>
+          )}
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-zinc-500">
+            <StatusBadge status={rec.status} phase={rec.phase} progress={rec.progress} />
+            <span>{formatDate(rec.createdAt)}</span>
+            <span>{formatDuration(rec.durationSec)}</span>
+            <span>{langLabel}</span>
+            {rec.speakerCount != null && <span>{rec.speakerCount} mluvčí</span>}
+            <span className="truncate" title={rec.originalFilename}>
+              {rec.originalFilename}
+            </span>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {rec.status === "COMPLETED" && (
+            <div className="flex items-center gap-1">
+              <span className="mr-1 text-xs text-zinc-500">Export:</span>
+              {EXPORTS.map((e) => (
+                <a key={e.format} className="btn" href={`/api/recordings/${rec.id}/export?format=${e.format}`}>
+                  {e.label}
+                </a>
+              ))}
+            </div>
+          )}
+          {rec.status === "FAILED" && (
+            <button className="btn" onClick={retry}>
+              Zkusit znovu
+            </button>
+          )}
+          <button className="btn btn-danger" onClick={remove}>
+            Smazat
+          </button>
+        </div>
+      </div>
+
+      {inflight && (
+        <div className="card p-5">
+          <div className="mb-2 flex items-center justify-between text-sm">
+            <span className="font-medium">{rec.phase ?? "Zpracovává se…"}</span>
+            <span className="text-zinc-500">{rec.progress} %</span>
+          </div>
+          <div className="h-2 overflow-hidden rounded bg-zinc-200 dark:bg-zinc-700">
+            <div className="h-full bg-blue-500 transition-all duration-500" style={{ width: `${rec.progress}%` }} />
+          </div>
+          {rec.error && <p className="mt-2 text-xs text-amber-600">{rec.error}</p>}
+          <p className="mt-3 text-xs text-zinc-500">
+            Stránka se aktualizuje automaticky. Přepis se zobrazí po dokončení; mezitím si můžete nahrávku poslechnout.
+          </p>
+        </div>
+      )}
+
+      {rec.status === "FAILED" && (
+        <div className="card border-red-300 p-5 dark:border-red-800">
+          <div className="font-medium text-red-700 dark:text-red-300">Zpracování selhalo</div>
+          <pre className="mt-2 whitespace-pre-wrap text-xs text-red-600 dark:text-red-400">{rec.error}</pre>
+        </div>
+      )}
+
+      {rec.audioUrl && (
+        <div className="card sticky top-2 z-10 p-4">
+          <audio
+            ref={audioRef}
+            src={rec.audioUrl}
+            preload="metadata"
+            onPlay={() => setPlaying(true)}
+            onPause={() => setPlaying(false)}
+            onTimeUpdate={(e) => setTime(e.currentTarget.currentTime)}
+            onLoadedMetadata={(e) => {
+              setDuration(e.currentTarget.duration);
+              e.currentTarget.playbackRate = rate;
+            }}
+            onEnded={() => setPlaying(false)}
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            <button className="btn" onClick={() => skip(-SKIP_SEC)} title="−5 s (←)">
+              ⏪ 5 s
+            </button>
+            <button className="btn btn-primary w-24 justify-center" onClick={toggle} title="Přehrát / pauza (mezerník)">
+              {playing ? "⏸ Pauza" : "▶ Přehrát"}
+            </button>
+            <button className="btn" onClick={() => skip(SKIP_SEC)} title="+5 s (→)">
+              5 s ⏩
+            </button>
+            <div className="ml-1 flex items-center gap-0.5 rounded-md border border-zinc-300 p-0.5 dark:border-zinc-700">
+              {RATES.map((r) => (
+                <button
+                  key={r}
+                  onClick={() => setRate(r)}
+                  className={`rounded px-2 py-1 text-xs font-medium ${
+                    rate === r ? "bg-blue-600 text-white" : "text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                  }`}
+                >
+                  {r}×
+                </button>
+              ))}
+            </div>
+            <span className="ml-auto whitespace-nowrap font-mono text-sm tabular-nums text-zinc-600 dark:text-zinc-400">
+              {formatTime(time)} / {formatTime(duration)}
+            </span>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={duration || 0}
+            step={0.1}
+            value={Math.min(time, duration || 0)}
+            onChange={(e) => seekTo(Number(e.target.value))}
+            className="mt-3 w-full accent-blue-600"
+          />
+        </div>
+      )}
+
+      {rec.status === "COMPLETED" && (
+        <div className="grid gap-5 lg:grid-cols-[1fr_260px]">
+          <section className="card p-5">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="font-semibold">Přepis</h2>
+              <label className="flex items-center gap-1.5 text-xs text-zinc-500">
+                <input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} />
+                Sledovat přehrávání
+              </label>
+            </div>
+            {turns.length === 0 ? (
+              <p className="text-sm text-zinc-500">V nahrávce nebyla rozpoznána žádná řeč.</p>
+            ) : (
+              <div className="space-y-4">
+                {turns.map((turn, ti) => {
+                  const c = speakerColor(turn.speaker, rec.speakers);
+                  return (
+                    <div key={ti} className="rounded-md border-l-4 pl-3" style={{ borderColor: c.border, background: c.bg }}>
+                      <div className="flex items-baseline gap-2 pt-1.5">
+                        <span className="text-sm font-semibold" style={{ color: c.fg }}>
+                          {label(turn.speaker)}
+                        </span>
+                        <button
+                          className="font-mono text-xs text-zinc-500 hover:underline"
+                          onClick={() => seekTo(turn.start, true)}
+                        >
+                          {formatTime(turn.start)}
+                        </button>
+                      </div>
+                      <p className="pb-2 pt-0.5 text-[15px] leading-relaxed">
+                        {turn.segments.map((seg) => {
+                          const active = seg.index === activeIndex;
+                          return (
+                            <span
+                              key={seg.index}
+                              ref={active ? activeRef : undefined}
+                              onClick={() => seekTo(seg.start, true)}
+                              title={`${formatTime(seg.start)} – ${formatTime(seg.end)}`}
+                              className={`cursor-pointer rounded px-0.5 transition ${
+                                active ? "bg-yellow-200 dark:bg-yellow-700/60" : "hover:bg-zinc-200/60 dark:hover:bg-zinc-700/50"
+                              }`}
+                            >
+                              {seg.text}{" "}
+                            </span>
+                          );
+                        })}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+
+          <aside className="card h-fit p-5 lg:sticky lg:top-40">
+            <h2 className="mb-3 font-semibold">Mluvčí</h2>
+            {rec.speakers.length === 0 ? (
+              <p className="text-sm text-zinc-500">Bez rozpoznaných mluvčích.</p>
+            ) : (
+              <div className="space-y-2">
+                {rec.speakers.map((id) => {
+                  const c = speakerColor(id, rec.speakers);
+                  return (
+                    <div key={id} className="flex items-center gap-2">
+                      <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: c.fg }} />
+                      <input
+                        className="input py-1"
+                        value={names[id] ?? ""}
+                        placeholder={label(id)}
+                        onChange={(e) => setNames((n) => ({ ...n, [id]: e.target.value }))}
+                        onBlur={saveNames}
+                        onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+                      />
+                    </div>
+                  );
+                })}
+                <p className="pt-1 text-xs text-zinc-500">
+                  {saving ? "Ukládám…" : "Přejmenování se promítne v přepisu i exportech."}
+                </p>
+              </div>
+            )}
+          </aside>
+        </div>
+      )}
+    </div>
+  );
+}
