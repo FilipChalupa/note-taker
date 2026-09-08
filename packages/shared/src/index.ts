@@ -35,8 +35,11 @@ export interface TranscribeAccepted {
 }
 
 /** Response of `GET /tasks/{id}/status`. */
+export type WorkerTaskKind = "transcribe" | "diarize";
+
 export interface WorkerTaskStatusResponse {
   task_id: string;
+  kind: WorkerTaskKind;
   /** Original upload filename as seen by the worker. */
   filename: string | null;
   status: WorkerTaskStatus;
@@ -80,6 +83,7 @@ export interface TranscriptSegment {
 /** Response of `GET /tasks/{id}/result`. */
 export interface WorkerTaskResult {
   task_id: string;
+  kind: WorkerTaskKind;
   language: string;
   /** seconds */
   duration: number;
@@ -156,6 +160,7 @@ export type ExportFormat = "md" | "txt" | "srt" | "vtt";
 /** One entry of the worker queue as shown by the web app (`GET /api/worker/queue`). */
 export interface QueueItem {
   taskId: string | null;
+  kind: WorkerTaskKind;
   status: WorkerTaskStatus;
   progress: number;
   phase: string | null;

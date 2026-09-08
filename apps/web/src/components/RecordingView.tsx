@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ExportFormat, RecordingDetail } from "@note-taker/shared";
 import { StatusBadge } from "./StatusBadge";
+import { requestWorkerRefresh } from "./WorkerStatus";
 import { PlayerControls } from "./player/PlayerControls";
 import { usePlayer } from "./player/PlayerProvider";
 import { errorLabel, formatDate, formatDuration, formatTime, groupTurns, phaseLabel, speakerColor, speakerLabel, warningLabel } from "@/lib/format";
@@ -27,7 +28,13 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
       router.push("/");
       return;
     }
-    if (r.ok) setRec((await r.json()) as RecordingDetail);
+    if (r.ok) {
+      const next = (await r.json()) as RecordingDetail;
+      setRec((prev) => {
+        if (prev.status !== next.status || prev.workerStatus !== next.workerStatus) requestWorkerRefresh();
+        return next;
+      });
+    }
   }, [initial.id, router]);
 
   useEffect(() => {
@@ -138,6 +145,27 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
     if (JSON.stringify(names) !== JSON.stringify(rec.speakerNames)) await patch({ speakerNames: names });
   };
 
+  const [actionError, setActionError] = useState<string | null>(null);
+  const rediarize = async () => {
+    const answer = prompt(m.detail.rediarizePrompt, rec.speakerCount && rec.speakerCount > 1 ? String(rec.speakerCount) : "");
+    if (answer === null) return;
+    const n = Number(answer.trim());
+    const body = answer.trim() && Number.isInteger(n) && n > 0 ? { minSpeakers: n, maxSpeakers: n } : {};
+    setActionError(null);
+    const r = await fetch(`/api/recordings/${rec.id}/rediarize`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (r.ok) {
+      setRec((await r.json()) as RecordingDetail);
+      requestWorkerRefresh();
+    } else {
+      const code = ((await r.json().catch(() => ({}))) as { error?: string }).error ?? `HTTP:${r.status}`;
+      setActionError(fmt(m.detail.rediarizeStartFailed, { detail: errorLabel(code, m) ?? code }));
+    }
+  };
+
   const remove = async () => {
     if (!confirm(fmt(m.list.confirmDelete, { title: rec.title }))) return;
     const r = await fetch(`/api/recordings/${rec.id}`, { method: "DELETE" });
@@ -147,7 +175,10 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
   const retry = async () => {
     if (rec.status === "COMPLETED" && !confirm(fmt(m.detail.confirmReprocess, { title: rec.title }))) return;
     const r = await fetch(`/api/recordings/${rec.id}/retry`, { method: "POST" });
-    if (r.ok) setRec((await r.json()) as RecordingDetail);
+    if (r.ok) {
+      setRec((await r.json()) as RecordingDetail);
+      requestWorkerRefresh();
+    }
   };
 
   const label = (id: string) => speakerLabel(id, rec.speakers, names, m);
@@ -222,6 +253,11 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
               {m.detail.retry}
             </button>
           )}
+          {rec.status === "COMPLETED" && rec.audioUrl && rec.segments.length > 0 && (
+            <button className="btn" onClick={rediarize} title={m.detail.rediarizeHint}>
+              👥 {m.detail.rediarize}
+            </button>
+          )}
           {rec.status === "COMPLETED" && (
             <button className="btn" onClick={retry} title={m.detail.confirmReprocess.split("?")[0]}>
               ↻ {m.detail.reprocess}
@@ -246,6 +282,12 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
           <p className="mt-3 text-xs text-zinc-500">
             {m.detail.autoRefresh}
           </p>
+        </div>
+      )}
+
+      {actionError && (
+        <div className="rounded-md border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+          {actionError}
         </div>
       )}
 

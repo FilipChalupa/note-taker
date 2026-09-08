@@ -58,6 +58,8 @@ class Task:
     audio_path: Optional[str] = None
     phase_started_at: Optional[str] = None
     phase_seconds: dict = field(default_factory=dict)  # measured wall time per finished phase
+    kind: str = "transcribe"  # "transcribe" | "diarize" (speakers only, transcript supplied by client)
+    segments_path: Optional[str] = None
 
     @property
     def dir(self) -> Path:
@@ -131,18 +133,24 @@ class TaskQueue:
 
     # --------------------------------------------------------------- public
     def submit(self, original_filename: str, input_path: Path, language: Optional[str],
-               min_speakers: Optional[int], max_speakers: Optional[int]) -> Task:
+               min_speakers: Optional[int], max_speakers: Optional[int],
+               kind: str = "transcribe", segments: Optional[list] = None) -> Task:
         task = Task(
             id=uuid.uuid4().hex,
             original_filename=original_filename,
             language=language,
             min_speakers=min_speakers,
             max_speakers=max_speakers,
+            kind=kind,
         )
         task.dir.mkdir(parents=True, exist_ok=True)
         final_input = task.dir / f"input{input_path.suffix.lower() or '.bin'}"
         shutil.move(str(input_path), final_input)
         task.input_path = str(final_input)
+        if segments is not None:
+            seg_path = task.dir / "segments.json"
+            seg_path.write_text(json.dumps(segments, ensure_ascii=False))
+            task.segments_path = str(seg_path)
         try:
             task.duration = audio_utils.probe_duration(final_input)
         except audio_utils.AudioError as exc:
@@ -212,7 +220,9 @@ class TaskQueue:
             self._persist(task)
 
     # ------------------------------------------------------------- estimates
-    def _phases(self) -> list[str]:
+    def _phases(self, task: Optional[Task] = None) -> list[str]:
+        if task is not None and task.kind == "diarize":
+            return ["CONVERTING", "DIARIZING"]
         phases = ["CONVERTING", "TRANSCRIBING"]
         if settings.diarization_enabled and settings.hf_token:
             phases.append("DIARIZING")
@@ -221,7 +231,7 @@ class TaskQueue:
     def _expected_total(self, task: Task) -> Optional[float]:
         if task.duration is None:
             return None
-        return sum(stats.expected_seconds(p, task.duration) or 0.0 for p in self._phases())
+        return sum(stats.expected_seconds(p, task.duration) or 0.0 for p in self._phases(task))
 
     def _remaining_seconds(self, task: Task) -> Optional[float]:
         """Remaining processing time of a running task (None if unknown)."""
@@ -233,7 +243,7 @@ class TaskQueue:
         if task.status == TaskStatus.QUEUED:
             return total
         done = 0.0
-        for p in self._phases():
+        for p in self._phases(task):
             exp = stats.expected_seconds(p, task.duration) or 0.0
             if p == task.status.value:
                 elapsed = 0.0
@@ -331,10 +341,16 @@ class TaskQueue:
         def progress(status: str, pct: int) -> None:
             self._update(task, TaskStatus(status), pct)
 
-        out = pipeline.run(dst, task.language, task.min_speakers, task.max_speakers, progress)
+        if task.kind == "diarize":
+            segments = json.loads(Path(task.segments_path).read_text())  # type: ignore[arg-type]
+            out = pipeline.diarize_only(dst, segments, task.min_speakers, task.max_speakers, progress)
+            out["language"] = task.language or "unknown"
+        else:
+            out = pipeline.run(dst, task.language, task.min_speakers, task.max_speakers, progress)
 
         result = {
             "task_id": task.id,
+            "kind": task.kind,
             "language": out["language"],
             "duration": task.duration,
             "model": settings.model_name,

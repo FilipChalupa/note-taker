@@ -8,6 +8,7 @@ import { Readable } from "node:stream";
 import type {
   TranscribeAccepted,
   TranscribeParams,
+  TranscriptSegment,
   WorkerHealth,
   WorkerTaskResult,
   WorkerTaskStatusResponse,
@@ -63,6 +64,22 @@ export const workerClient = {
     if (params.max_speakers) form.append("max_speakers", String(params.max_speakers));
     // Large uploads over slow links: give it 10 minutes
     return request<TranscribeAccepted>("/transcribe", { method: "POST", body: form }, 10 * 60_000);
+  },
+
+  /** Speaker identification only, on an existing transcript (worker task kind "diarize"). */
+  async submitDiarize(
+    audioPath: string,
+    filename: string,
+    segments: TranscriptSegment[],
+    params: TranscribeParams,
+  ): Promise<TranscribeAccepted> {
+    const form = new FormData();
+    form.append("file", await openAsBlob(audioPath), filename);
+    form.append("segments", JSON.stringify(segments));
+    if (params.language) form.append("language", params.language);
+    if (params.min_speakers) form.append("min_speakers", String(params.min_speakers));
+    if (params.max_speakers) form.append("max_speakers", String(params.max_speakers));
+    return request<TranscribeAccepted>("/diarize", { method: "POST", body: form }, 10 * 60_000);
   },
 
   status: (taskId: string) => request<WorkerTaskStatusResponse>(`/tasks/${taskId}/status`),

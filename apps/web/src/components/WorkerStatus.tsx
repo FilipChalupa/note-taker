@@ -8,6 +8,12 @@ import { useI18n } from "@/lib/i18n/client";
 
 type Resp = { reachable: boolean; url: string; health?: WorkerHealth; error?: string };
 
+export const WORKER_REFRESH_EVENT = "note-taker:worker-refresh";
+/** Ask the header worker/queue chip to refresh right away (after upload, retry, rediarize...). */
+export function requestWorkerRefresh(): void {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(WORKER_REFRESH_EVENT));
+}
+
 /** Short GPU name: "NVIDIA GeForce RTX 3080" -> "RTX 3080" */
 function shortGpuName(name: string | null): string {
   if (!name) return "";
@@ -30,10 +36,17 @@ export function WorkerStatus() {
       }
     };
     void load();
-    const t = setInterval(load, 15_000);
+    const t = setInterval(load, 5_000);
+    // Refresh immediately after actions that change the queue (upload, retry, rediarize) and on tab focus
+    const onRefresh = () => void load();
+    const onVisible = () => document.visibilityState === "visible" && void load();
+    window.addEventListener(WORKER_REFRESH_EVENT, onRefresh);
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       alive = false;
       clearInterval(t);
+      window.removeEventListener(WORKER_REFRESH_EVENT, onRefresh);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, []);
 

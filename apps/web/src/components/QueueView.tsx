@@ -45,6 +45,9 @@ export function QueueView() {
           <div className="flex flex-wrap gap-x-3 text-xs text-zinc-500">
             {item.recording && item.filename && item.filename !== title && <span className="truncate">{item.filename}</span>}
             {!item.recording && <span className="italic">{m.queue.external}</span>}
+            {item.kind === "diarize" && (
+              <span className="rounded bg-purple-100 px-1.5 text-purple-800 dark:bg-purple-900 dark:text-purple-200">{m.queue.kindDiarize}</span>
+            )}
             <span>
               {m.queue.added} {formatDate(item.createdAt, locale)}
             </span>

@@ -68,9 +68,11 @@ export function warningLabel(warning: string | null | undefined, m: Messages): s
 /** Our own error codes are translated; raw worker messages pass through. */
 export function errorLabel(error: string | null | undefined, m: Messages): string | null {
   if (!error) return null;
-  const [key, param] = error.split(":", 2);
+  const idx = error.indexOf(":");
+  const key = idx >= 0 ? error.slice(0, idx) : error;
+  const param = idx >= 0 ? error.slice(idx + 1) : "";
   const template = (m.errors as Record<string, string>)[key];
-  return template ? fmt(template, { mb: param ?? "", status: param ?? "", msg: param ?? "" }) : error;
+  return template ? fmt(template, { mb: param, status: param, msg: param, detail: param }) : error;
 }
 
 const PALETTE = [

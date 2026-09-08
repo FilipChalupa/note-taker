@@ -42,6 +42,7 @@ export async function GET() {
 
   const toItem = (t: WorkerTaskStatusResponse): QueueItem => ({
     taskId: t.task_id,
+    kind: t.kind ?? "transcribe",
     status: t.status,
     progress: t.progress,
     phase: t.queue_position && t.queue_position > 0 ? `WORKER_QUEUE:${t.queue_position}` : t.status,
@@ -63,6 +64,7 @@ export async function GET() {
     .filter((r) => !linkedIds.has(r.id))
     .map((r) => ({
       taskId: null,
+      kind: "transcribe" as const,
       status: "QUEUED",
       progress: 0,
       phase: r.phase ?? "WAITING_FOR_WORKER",

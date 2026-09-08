@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import type { RecordingSummary } from "@note-taker/shared";
 import { StatusBadge } from "./StatusBadge";
+import { requestWorkerRefresh } from "./WorkerStatus";
 import { errorLabel, formatDate, formatDuration, phaseLabel } from "@/lib/format";
 import { fmt } from "@/lib/i18n";
 import { useI18n } from "@/lib/i18n/client";
@@ -41,6 +42,7 @@ export function RecordingList({ initial }: { initial: RecordingSummary[] }) {
 
   const retry = async (rec: RecordingSummary) => {
     await fetch(`/api/recordings/${rec.id}/retry`, { method: "POST" });
+    requestWorkerRefresh();
     void refresh();
   };
 

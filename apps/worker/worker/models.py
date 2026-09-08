@@ -28,6 +28,7 @@ class TranscribeAccepted(BaseModel):
 
 class TaskStatusResponse(BaseModel):
     task_id: str
+    kind: str = "transcribe"
     filename: Optional[str] = None
     status: TaskStatus
     progress: int = Field(ge=0, le=100)
@@ -64,6 +65,7 @@ class Segment(BaseModel):
 
 class TaskResult(BaseModel):
     task_id: str
+    kind: str = "transcribe"
     language: str
     duration: float
     model: str

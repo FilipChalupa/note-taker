@@ -7,6 +7,7 @@ import { errorLabel, LANGUAGE_CODES } from "@/lib/format";
 import { fmt } from "@/lib/i18n";
 import { useI18n } from "@/lib/i18n/client";
 import { useDroppedFile } from "./DropProvider";
+import { requestWorkerRefresh } from "./WorkerStatus";
 
 const ACCEPT = ".mp3,.mpga,.m4a,.m4b,.wav,.aac,.ogg,.oga,.opus,.flac,.wma,.aif,.aiff,.mka,.webm,.mp4,.m4v,.mov,.mkv,.avi,.mpg,.mpeg,.ts,.3gp,.amr,audio/*,video/*";
 
@@ -77,6 +78,7 @@ export function UploadForm({ defaultLanguage, maxUploadBytes }: { defaultLanguag
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) {
         const rec = JSON.parse(xhr.responseText) as RecordingDetail;
+        requestWorkerRefresh();
         router.push(`/recordings/${rec.id}`);
       } else {
         let msg = fmt(m.errors.HTTP, { status: xhr.status });

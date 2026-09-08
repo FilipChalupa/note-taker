@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import shutil
 import tempfile
@@ -63,6 +64,7 @@ def _status_response(task) -> TaskStatusResponse:
     est = task_queue.estimate(task)
     return TaskStatusResponse(
         task_id=task.id,
+        kind=task.kind,
         filename=task.original_filename,
         status=task.status,
         progress=est["progress"],
@@ -154,6 +156,48 @@ async def transcribe(
         status=task.status,
         queue_position=task_queue.queue_position(task.id) or 0,
     )
+
+
+@app.post("/diarize", response_model=TranscribeAccepted, status_code=202, dependencies=auth)
+async def diarize(
+    file: UploadFile = File(...),
+    segments: str = Form(..., description="JSON array of transcript segments with word timestamps"),
+    language: Optional[str] = Form(default=None),
+    min_speakers: Optional[int] = Form(default=None),
+    max_speakers: Optional[int] = Form(default=None),
+) -> TranscribeAccepted:
+    """Re-run speaker identification only, on an already transcribed recording."""
+    if not settings.diarization_enabled or not settings.hf_token:
+        raise HTTPException(409, "Diarization is disabled on this worker (HF_TOKEN / DIARIZATION_ENABLED)")
+    if min_speakers and max_speakers and min_speakers > max_speakers:
+        raise HTTPException(400, "min_speakers must be <= max_speakers")
+    try:
+        parsed = json.loads(segments)
+        assert isinstance(parsed, list)
+    except (ValueError, AssertionError):
+        raise HTTPException(400, "segments must be a JSON array")
+
+    suffix = Path(file.filename or "audio").suffix or ".bin"
+    tmp_dir = settings.data_dir / "incoming"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(delete=False, dir=tmp_dir, suffix=suffix) as tmp:
+        shutil.copyfileobj(file.file, tmp, length=1024 * 1024)
+        tmp_path = Path(tmp.name)
+    await file.close()
+    if tmp_path.stat().st_size == 0:
+        tmp_path.unlink(missing_ok=True)
+        raise HTTPException(400, "Empty file")
+
+    task = task_queue.submit(
+        original_filename=file.filename or tmp_path.name,
+        input_path=tmp_path,
+        language=(language or "").strip().lower() or None,
+        min_speakers=min_speakers,
+        max_speakers=max_speakers,
+        kind="diarize",
+        segments=parsed,
+    )
+    return TranscribeAccepted(task_id=task.id, status=task.status, queue_position=task_queue.queue_position(task.id) or 0)
 
 
 @app.get("/tasks", dependencies=auth)

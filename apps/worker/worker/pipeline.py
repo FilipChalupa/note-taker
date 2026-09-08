@@ -239,6 +239,45 @@ class Pipeline:
         }
 
 
+    def diarize_only(
+        self,
+        audio_path: Path,
+        segments: list[dict],
+        min_speakers: Optional[int],
+        max_speakers: Optional[int],
+        progress: ProgressCb,
+    ) -> dict:
+        """Re-run speaker identification on an existing transcript (segments with word timestamps)."""
+        import whisperx
+
+        if not settings.diarization_enabled or not settings.hf_token:
+            raise RuntimeError("Diarization is disabled or HF_TOKEN is not set")
+        progress("DIARIZING", 20)
+        audio = whisperx.load_audio(str(audio_path))
+        diarizer = self._load_diarizer()
+        progress("DIARIZING", 40)
+        kwargs = {}
+        if min_speakers:
+            kwargs["min_speakers"] = min_speakers
+        if max_speakers:
+            kwargs["max_speakers"] = max_speakers
+        diarize_segments = diarizer(audio, **kwargs)
+        progress("DIARIZING", 90)
+        # strip previous speaker labels so assignment starts clean
+        clean = []
+        for seg in segments:
+            seg = dict(seg)
+            seg.pop("speaker", None)
+            seg["words"] = [{k: v for k, v in w.items() if k != "speaker"} for w in (seg.get("words") or [])]
+            clean.append(seg)
+        result = whisperx.assign_word_speakers(diarize_segments, {"segments": clean})
+        self.diarization_error = None
+        out = _postprocess_segments(result.get("segments", []), True)
+        del audio
+        gc.collect()
+        return {"diarized": True, "diarization_error": None, "speakers": _ordered_speakers(out), "segments": out}
+
+
 # --------------------------------------------------------------------- utils
 def _postprocess_segments(raw: list[dict], diarized: bool) -> list[dict]:
     out: list[dict] = []

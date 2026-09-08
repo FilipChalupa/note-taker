@@ -190,6 +190,50 @@ export async function retryRecording(id: string): Promise<RecordingDetail | null
   return getRecording(id);
 }
 
+/**
+ * Re-run speaker identification only. Keeps the transcript, sends audio + segments to the worker.
+ * Returns an error code when it cannot be started (worker offline, diarization disabled...).
+ */
+export async function rediarizeRecording(
+  id: string,
+  opts: { minSpeakers?: number; maxSpeakers?: number },
+): Promise<{ recording: RecordingDetail } | { error: string; status: number }> {
+  const row = getRecordingRow(id);
+  if (!row) return { error: "NOT_FOUND", status: 404 };
+  if (row.status !== "COMPLETED") return { error: "NOT_FINISHED", status: 409 };
+  const audio = row.audioPath && fs.existsSync(row.audioPath) ? row.audioPath : fs.existsSync(row.originalPath) ? row.originalPath : null;
+  if (!audio) return { error: "AUDIO_UNAVAILABLE", status: 409 };
+  if (!row.segments?.length) return { error: "NO_TRANSCRIPT", status: 409 };
+
+  let accepted;
+  try {
+    accepted = await workerClient.submitDiarize(audio, path.basename(audio), row.segments, {
+      language: row.detectedLanguage ?? undefined,
+      min_speakers: opts.minSpeakers,
+      max_speakers: opts.maxSpeakers,
+    });
+  } catch (err) {
+    const status = err instanceof WorkerError && err.status === 409 ? 409 : 503;
+    return { error: `WORKER:${(err as Error).message}`, status };
+  }
+  db.update(recordings)
+    .set({
+      status: "PROCESSING",
+      workerTaskId: accepted.task_id,
+      workerStatus: accepted.status,
+      progress: 0,
+      phase: accepted.queue_position > 0 ? `WORKER_QUEUE:${accepted.queue_position}` : "DIARIZING",
+      error: null,
+      warning: null,
+      minSpeakers: opts.minSpeakers ?? null,
+      maxSpeakers: opts.maxSpeakers ?? null,
+      updatedAt: now(),
+    })
+    .where(eq(recordings.id, id))
+    .run();
+  return { recording: getRecording(id)! };
+}
+
 // ---------------------------------------------------- worker orchestration
 /** Upload the original file to the worker and store the task id. Safe to call repeatedly. */
 export async function dispatch(id: string): Promise<void> {
@@ -295,13 +339,16 @@ export async function syncRecording(id: string): Promise<void> {
   const result = await workerClient.result(row.workerTaskId);
   if (!result) return;
 
+  const diarizeOnly = result.kind === "diarize";
   const audioExt = result.audio_mime === "audio/wav" ? "wav" : "mp3";
-  const audioPath = path.join(recordingDir(id), `audio.${audioExt}`);
-  try {
-    await workerClient.downloadAudio(result.audio_url, audioPath);
-  } catch (err) {
-    // Not fatal: we can still play the original upload
-    console.warn(`[recordings] audio download failed for ${id}:`, (err as Error).message);
+  const audioPath = diarizeOnly && row.audioPath ? row.audioPath : path.join(recordingDir(id), `audio.${audioExt}`);
+  if (!diarizeOnly) {
+    try {
+      await workerClient.downloadAudio(result.audio_url, audioPath);
+    } catch (err) {
+      // Not fatal: we can still play the original upload
+      console.warn(`[recordings] audio download failed for ${id}:`, (err as Error).message);
+    }
   }
 
   const segments: TranscriptSegment[] = result.segments.map((s) => ({
@@ -320,10 +367,11 @@ export async function syncRecording(id: string): Promise<void> {
       phase: "COMPLETED",
       error: null,
       warning: result.diarized ? null : `DIARIZATION_FAILED:${result.diarization_error ?? "unknown"}`,
-      durationSec: result.duration,
-      detectedLanguage: result.language,
+      durationSec: diarizeOnly ? row.durationSec : result.duration,
+      detectedLanguage: diarizeOnly ? row.detectedLanguage : result.language,
       speakerCount: result.speakers.filter((s) => s !== "UNKNOWN").length,
       speakers: result.speakers,
+      speakerNames: {},
       segments,
       audioPath: fs.existsSync(audioPath) ? audioPath : null,
       updatedAt: now(),
