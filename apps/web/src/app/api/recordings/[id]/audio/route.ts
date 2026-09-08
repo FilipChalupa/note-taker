@@ -3,6 +3,7 @@ import path from "node:path";
 import { Readable } from "node:stream";
 import { NextResponse } from "next/server";
 import { getRecordingRow } from "@/lib/recordings";
+import { safeFilename } from "@/lib/export";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -49,6 +50,11 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     "Accept-Ranges": "bytes",
     "Cache-Control": "private, max-age=3600",
   };
+  // ?download=1 -> save as "<title>.<ext>" instead of playing inline
+  if (new URL(req.url).searchParams.get("download")) {
+    const filename = `${safeFilename(row.title)}${path.extname(file).toLowerCase()}`;
+    baseHeaders["Content-Disposition"] = `attachment; filename="${filename}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
+  }
 
   if (range) {
     const m = /^bytes=(\d*)-(\d*)$/.exec(range);

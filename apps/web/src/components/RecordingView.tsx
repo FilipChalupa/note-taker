@@ -211,6 +211,11 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
               ))}
             </div>
           )}
+          {rec.audioUrl && (
+            <a className="btn" href={`${rec.audioUrl}?download=1`} download title={m.detail.downloadAudioHint}>
+              ⬇ {m.detail.downloadAudio}
+            </a>
+          )}
           {rec.status === "FAILED" && (
             <button className="btn" onClick={retry}>
               {m.detail.retry}
