@@ -6,7 +6,9 @@ Next.js 16 (App Router) application that:
 - stores metadata in SQLite (Drizzle ORM, `better-sqlite3`) and files on disk (`DATA_DIR`),
 - hands tasks to the GPU worker and polls their state in the background (`src/instrumentation.ts` → `src/lib/poller.ts`),
 - shows the transcript with color-coded speakers, a player (1×–2×, ±5 s, click a sentence to seek),
-  speaker renaming and export to Markdown / TXT / SRT / VTT.
+  speaker renaming and export to Markdown / TXT / SRT / VTT,
+- is available in English and Czech; the language follows the browser's `Accept-Language`
+  (Slovak maps to Czech, anything else to English) and can be overridden with the CS/EN switcher (cookie).
 
 ## Homelab deployment (Docker)
 
