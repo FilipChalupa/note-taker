@@ -7,7 +7,7 @@ import { errorLabel, LANGUAGE_CODES } from "@/lib/format";
 import { fmt } from "@/lib/i18n";
 import { useI18n } from "@/lib/i18n/client";
 
-const ACCEPT = ".mp3,.m4a,.wav,.aac,.ogg,.oga,.opus,.flac,.wma,.webm,.mp4,.m4v,.mov,.mkv,.avi,.3gp,.amr,audio/*,video/*";
+const ACCEPT = ".mp3,.mpga,.m4a,.m4b,.wav,.aac,.ogg,.oga,.opus,.flac,.wma,.aif,.aiff,.mka,.webm,.mp4,.m4v,.mov,.mkv,.avi,.mpg,.mpeg,.ts,.3gp,.amr,audio/*,video/*";
 
 function fmtBytes(b: number): string {
   if (b > 1024 * 1024 * 1024) return `${(b / 1024 / 1024 / 1024).toFixed(2)} GB`;

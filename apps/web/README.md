@@ -2,7 +2,7 @@
 
 Next.js 16 (App Router) application that:
 
-- accepts recordings (drag & drop; MP3, M4A, WAV, AAC, OGG, FLAC, MP4/MOV…),
+- accepts recordings (drag & drop; MP3, M4A, WAV, AAC, OGG, FLAC, MKA, MP4/MOV/MKV…),
 - stores metadata in SQLite (Drizzle ORM, `better-sqlite3`) and files on disk (`DATA_DIR`),
 - hands tasks to the GPU worker and polls their state in the background (`src/instrumentation.ts` → `src/lib/poller.ts`),
 - shows the transcript with color-coded speakers, a player (1×–2×, ±5 s, click a sentence to seek),

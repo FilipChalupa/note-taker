@@ -11,7 +11,7 @@ export async function GET() {
   return NextResponse.json(listRecordings());
 }
 
-const ALLOWED_EXT = /\.(mp3|m4a|wav|aac|ogg|oga|opus|flac|wma|webm|mp4|m4v|mov|mkv|avi|3gp|amr)$/i;
+const ALLOWED_EXT = /\.(mp3|mpga|m4a|m4b|wav|aac|ogg|oga|opus|flac|wma|aiff?|mka|webm|mp4|m4v|mov|mkv|avi|mpe?g|ts|3gp|amr)$/i;
 
 export async function POST(req: Request) {
   ensurePollerStarted();

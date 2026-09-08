@@ -67,7 +67,7 @@ const cs = {
   upload: {
     title: "Nahrát novou schůzku",
     dropHere: "Přetáhněte sem audio nebo klikněte pro výběr",
-    formats: "MP3, M4A, WAV, AAC, OGG, FLAC, MP4/MOV (zvuková stopa)…",
+    formats: "MP3, M4A, WAV, AAC, OGG, FLAC, MKA, MP4/MOV/MKV (zvuková stopa)…",
     clickToChange: "klikněte pro změnu",
     name: "Název schůzky",
     namePlaceholder: "Např. Týdenní sync 8. 9.",
@@ -186,7 +186,7 @@ const en: Messages = {
   upload: {
     title: "Upload a new meeting",
     dropHere: "Drop an audio file here or click to choose",
-    formats: "MP3, M4A, WAV, AAC, OGG, FLAC, MP4/MOV (audio track)…",
+    formats: "MP3, M4A, WAV, AAC, OGG, FLAC, MKA, MP4/MOV/MKV (audio track)…",
     clickToChange: "click to change",
     name: "Meeting name",
     namePlaceholder: "e.g. Weekly sync, Sep 8",

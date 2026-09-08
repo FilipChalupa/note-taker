@@ -20,6 +20,10 @@ const MIME: Record<string, string> = {
   ".webm": "audio/webm",
   ".mov": "video/quicktime",
   ".mkv": "video/x-matroska",
+  ".mka": "audio/x-matroska",
+  ".m4b": "audio/mp4",
+  ".aif": "audio/aiff",
+  ".aiff": "audio/aiff",
 };
 
 /** Serve normalized audio (or the original upload while processing) with HTTP Range support. */
