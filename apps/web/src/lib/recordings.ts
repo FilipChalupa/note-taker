@@ -10,7 +10,6 @@ import { config, recordingDir } from "@/lib/config";
 import { db, schema } from "@/lib/db";
 import type { RecordingRow } from "@/lib/db/schema";
 import { workerClient, WorkerError } from "@/lib/worker-client";
-import { PHASE_LABEL } from "@/lib/format";
 
 const { recordings } = schema;
 const now = () => new Date().toISOString();
@@ -112,14 +111,14 @@ export async function createRecording(input: CreateRecordingInput): Promise<Reco
   db.insert(recordings)
     .values({
       id,
-      title: input.title.trim() || path.basename(input.file.name, ext) || "Bez názvu",
+      title: input.title.trim() || path.basename(input.file.name, ext) || "Untitled",
       originalFilename: input.file.name || `upload${ext}`,
       originalPath,
       language: input.language,
       minSpeakers: input.minSpeakers ?? null,
       maxSpeakers: input.maxSpeakers ?? null,
       status: "QUEUED",
-      phase: PHASE_LABEL.QUEUED,
+      phase: "QUEUED",
       createdAt: ts,
       updatedAt: ts,
     })
@@ -164,7 +163,7 @@ export async function retryRecording(id: string): Promise<RecordingDetail | null
   if (!row) return null;
   if (!fs.existsSync(row.originalPath)) {
     db.update(recordings)
-      .set({ status: "FAILED", error: "Původní soubor už není k dispozici", updatedAt: now() })
+      .set({ status: "FAILED", error: "ORIGINAL_FILE_MISSING", updatedAt: now() })
       .where(eq(recordings.id, id))
       .run();
     return getRecording(id);
@@ -175,7 +174,7 @@ export async function retryRecording(id: string): Promise<RecordingDetail | null
       workerTaskId: null,
       workerStatus: null,
       progress: 0,
-      phase: PHASE_LABEL.QUEUED,
+      phase: "QUEUED",
       error: null,
       dispatchAttempts: 0,
       updatedAt: now(),
@@ -201,7 +200,7 @@ export async function dispatch(id: string): Promise<void> {
       .set({
         workerTaskId: accepted.task_id,
         workerStatus: accepted.status,
-        phase: accepted.queue_position > 0 ? `Ve frontě workeru (${accepted.queue_position}.)` : PHASE_LABEL.QUEUED,
+        phase: accepted.queue_position > 0 ? `WORKER_QUEUE:${accepted.queue_position}` : "QUEUED",
         error: null,
         updatedAt: now(),
       })
@@ -213,7 +212,7 @@ export async function dispatch(id: string): Promise<void> {
     db.update(recordings)
       .set({
         status: retryable ? "QUEUED" : "FAILED",
-        phase: retryable ? "Čeká na dostupnost workeru" : PHASE_LABEL.FAILED,
+        phase: retryable ? "WAITING_FOR_WORKER" : "FAILED",
         error: msg,
         dispatchAttempts: row.dispatchAttempts + 1,
         updatedAt: now(),
@@ -246,7 +245,7 @@ export async function syncRecording(id: string): Promise<void> {
       return;
     }
     db.update(recordings)
-      .set({ phase: "Worker nedostupný, čekám…", error: (err as Error).message, updatedAt: now() })
+      .set({ phase: "WORKER_UNREACHABLE", error: (err as Error).message, updatedAt: now() })
       .where(eq(recordings.id, id))
       .run();
     return;
@@ -257,9 +256,9 @@ export async function syncRecording(id: string): Promise<void> {
       .set({
         status: "FAILED",
         workerStatus: status.status,
-        phase: PHASE_LABEL.FAILED,
+        phase: "FAILED",
         progress: status.progress,
-        error: status.error ?? "Neznámá chyba workeru",
+        error: status.error ?? "WORKER_UNKNOWN_ERROR",
         updatedAt: now(),
       })
       .where(eq(recordings.id, id))
@@ -271,8 +270,8 @@ export async function syncRecording(id: string): Promise<void> {
     const queued = status.status === "QUEUED";
     const phase =
       queued && status.queue_position && status.queue_position > 0
-        ? `Ve frontě workeru (${status.queue_position}.)`
-        : (PHASE_LABEL[status.status] ?? status.phase);
+        ? `WORKER_QUEUE:${status.queue_position}`
+        : status.status;
     db.update(recordings)
       .set({
         status: queued ? "QUEUED" : "PROCESSING",
@@ -313,7 +312,7 @@ export async function syncRecording(id: string): Promise<void> {
       status: "COMPLETED",
       workerStatus: "COMPLETED",
       progress: 100,
-      phase: PHASE_LABEL.COMPLETED,
+      phase: "COMPLETED",
       error: null,
       durationSec: result.duration,
       detectedLanguage: result.language,

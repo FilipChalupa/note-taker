@@ -19,20 +19,17 @@ export async function POST(req: Request) {
   try {
     form = await req.formData();
   } catch {
-    return NextResponse.json({ error: "Neplatný formulář" }, { status: 400 });
+    return NextResponse.json({ error: "INVALID_FORM" }, { status: 400 });
   }
   const file = form.get("file");
   if (!(file instanceof File) || file.size === 0) {
-    return NextResponse.json({ error: "Chybí audio soubor" }, { status: 400 });
+    return NextResponse.json({ error: "MISSING_FILE" }, { status: 400 });
   }
   if (file.size > config.maxUploadBytes) {
-    return NextResponse.json(
-      { error: `Soubor je příliš velký (max ${Math.round(config.maxUploadBytes / 1024 / 1024)} MB)` },
-      { status: 413 },
-    );
+    return NextResponse.json({ error: `FILE_TOO_LARGE:${Math.round(config.maxUploadBytes / 1024 / 1024)}` }, { status: 413 });
   }
   if (!ALLOWED_EXT.test(file.name) && !/^(audio|video)\//.test(file.type)) {
-    return NextResponse.json({ error: "Nepodporovaný typ souboru" }, { status: 415 });
+    return NextResponse.json({ error: "UNSUPPORTED_TYPE" }, { status: 415 });
   }
 
   const title = String(form.get("title") ?? "");
@@ -44,7 +41,7 @@ export async function POST(req: Request) {
   const minSpeakers = toInt(form.get("minSpeakers"));
   const maxSpeakers = toInt(form.get("maxSpeakers"));
   if (minSpeakers && maxSpeakers && minSpeakers > maxSpeakers) {
-    return NextResponse.json({ error: "Minimální počet mluvčích nesmí být větší než maximální" }, { status: 400 });
+    return NextResponse.json({ error: "SPEAKER_RANGE" }, { status: 400 });
   }
 
   const rec = await createRecording({ title, language, minSpeakers, maxSpeakers, file });

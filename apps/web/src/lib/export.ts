@@ -1,5 +1,6 @@
 import type { ExportFormat, RecordingDetail } from "@note-taker/shared";
-import { groupTurns, speakerLabel } from "./format";
+import { messages, type Locale } from "@/lib/i18n";
+import { groupTurns, intlLocale, speakerLabel } from "./format";
 
 function ts(sec: number, sep: "," | "."): string {
   const ms = Math.round(sec * 1000);
@@ -20,8 +21,13 @@ function clock(sec: number): string {
     : `${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`;
 }
 
-export function exportTranscript(rec: RecordingDetail, format: ExportFormat): { body: string; mime: string; ext: string } {
-  const name = (id: string) => speakerLabel(id, rec.speakers, rec.speakerNames);
+export function exportTranscript(
+  rec: RecordingDetail,
+  format: ExportFormat,
+  locale: Locale,
+): { body: string; mime: string; ext: string } {
+  const m = messages[locale];
+  const name = (id: string) => speakerLabel(id, rec.speakers, rec.speakerNames, m);
   const turns = groupTurns(rec.segments);
 
   switch (format) {
@@ -35,9 +41,9 @@ export function exportTranscript(rec: RecordingDetail, format: ExportFormat): { 
       const head = [
         `# ${rec.title}`,
         "",
-        `- Datum: ${new Date(rec.createdAt).toLocaleString("cs-CZ")}`,
-        `- Délka: ${clock(rec.durationSec ?? 0)}`,
-        `- Mluvčí: ${rec.speakers.map(name).join(", ") || "–"}`,
+        `- ${m.export.date}: ${new Date(rec.createdAt).toLocaleString(intlLocale(locale))}`,
+        `- ${m.export.duration}: ${clock(rec.durationSec ?? 0)}`,
+        `- ${m.export.speakers}: ${rec.speakers.map(name).join(", ") || "–"}`,
         "",
         "---",
         "",
@@ -69,5 +75,5 @@ export function safeFilename(title: string): string {
     .replace(/[^a-zA-Z0-9-_ ]+/g, "")
     .trim()
     .replace(/\s+/g, "_")
-    .slice(0, 80) || "prepis";
+    .slice(0, 80) || "transcript";
 }

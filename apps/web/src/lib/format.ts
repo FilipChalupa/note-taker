@@ -1,4 +1,5 @@
 import type { TranscriptSegment } from "@note-taker/shared";
+import { fmt, type Locale, type Messages } from "@/lib/i18n";
 
 /** 3725.4 -> "1:02:05" ; 65 -> "1:05" */
 export function formatTime(sec: number | null | undefined, forceHours = false): string {
@@ -11,33 +12,55 @@ export function formatTime(sec: number | null | undefined, forceHours = false): 
   return h > 0 || forceHours ? `${h}:${mm}:${String(r).padStart(2, "0")}` : `${mm}:${String(r).padStart(2, "0")}`;
 }
 
-export function formatDuration(sec: number | null | undefined): string {
+export function formatDuration(sec: number | null | undefined, m: Messages): string {
   if (sec == null || !Number.isFinite(sec)) return "–";
   const s = Math.round(sec);
   const h = Math.floor(s / 3600);
-  const m = Math.round((s % 3600) / 60);
-  if (h > 0) return `${h} h ${m} min`;
-  if (m > 0) return `${m} min`;
-  return `${s} s`;
+  const min = Math.round((s % 3600) / 60);
+  if (h > 0) return `${h} ${m.units.h} ${min} ${m.units.min}`;
+  if (min > 0) return `${min} ${m.units.min}`;
+  return `${s} ${m.units.s}`;
 }
 
-export function formatDate(iso: string): string {
-  const d = new Date(iso);
-  return d.toLocaleString("cs-CZ", { dateStyle: "medium", timeStyle: "short" });
+export function intlLocale(locale: Locale): string {
+  return locale === "cs" ? "cs-CZ" : "en-GB";
 }
 
-/** Default label for a raw speaker id: SPEAKER_00 -> "Mluvčí 1" (by order of first appearance). */
-export function defaultSpeakerLabel(speakerId: string, speakers: string[]): string {
-  if (speakerId === "UNKNOWN") return "Neznámý";
+export function formatDate(iso: string, locale: Locale): string {
+  return new Date(iso).toLocaleString(intlLocale(locale), { dateStyle: "medium", timeStyle: "short" });
+}
+
+/** Default label for a raw speaker id: SPEAKER_00 -> "Speaker 1" (by order of first appearance). */
+export function defaultSpeakerLabel(speakerId: string, speakers: string[], m: Messages): string {
+  if (speakerId === "UNKNOWN") return m.speaker.unknown;
   const idx = speakers.indexOf(speakerId);
-  if (idx >= 0) return `Mluvčí ${idx + 1}`;
-  const m = /SPEAKER_(\d+)/.exec(speakerId);
-  return m ? `Mluvčí ${Number(m[1]) + 1}` : speakerId;
+  if (idx >= 0) return fmt(m.speaker.default, { n: idx + 1 });
+  const match = /SPEAKER_(\d+)/.exec(speakerId);
+  return match ? fmt(m.speaker.default, { n: Number(match[1]) + 1 }) : speakerId;
 }
 
-export function speakerLabel(speakerId: string, speakers: string[], names: Record<string, string>): string {
+export function speakerLabel(speakerId: string, speakers: string[], names: Record<string, string>, m: Messages): string {
   const custom = names[speakerId]?.trim();
-  return custom || defaultSpeakerLabel(speakerId, speakers);
+  return custom || defaultSpeakerLabel(speakerId, speakers, m);
+}
+
+/**
+ * Phases are stored language-neutrally as "KEY" or "KEY:param" (e.g. "WORKER_QUEUE:3").
+ * Unknown values (raw worker text) are returned as-is.
+ */
+export function phaseLabel(phase: string | null | undefined, m: Messages): string | null {
+  if (!phase) return null;
+  const [key, param] = phase.split(":", 2);
+  const template = (m.phase as Record<string, string>)[key];
+  return template ? fmt(template, { n: param ?? "" }) : phase;
+}
+
+/** Our own error codes are translated; raw worker messages pass through. */
+export function errorLabel(error: string | null | undefined, m: Messages): string | null {
+  if (!error) return null;
+  const [key, param] = error.split(":", 2);
+  const template = (m.errors as Record<string, string>)[key];
+  return template ? fmt(template, { mb: param ?? "", status: param ?? "", msg: param ?? "" }) : error;
 }
 
 const PALETTE = [
@@ -55,8 +78,8 @@ export function speakerColor(speakerId: string, speakers: string[]): { fg: strin
   if (speakerId === "UNKNOWN") return { fg: "hsl(0 0% 45%)", bg: "hsl(0 0% 45% / 0.08)", border: "hsl(0 0% 45% / 0.4)" };
   let idx = speakers.indexOf(speakerId);
   if (idx < 0) {
-    const m = /SPEAKER_(\d+)/.exec(speakerId);
-    idx = m ? Number(m[1]) : 0;
+    const match = /SPEAKER_(\d+)/.exec(speakerId);
+    idx = match ? Number(match[1]) : 0;
   }
   const c = PALETTE[idx % PALETTE.length];
   return {
@@ -88,32 +111,5 @@ export function groupTurns(segments: TranscriptSegment[]): SpeakerTurn[] {
   return turns;
 }
 
-export const LANGUAGES: Array<{ code: string; label: string }> = [
-  { code: "cs", label: "Čeština" },
-  { code: "sk", label: "Slovenština" },
-  { code: "en", label: "Angličtina" },
-  { code: "de", label: "Němčina" },
-  { code: "pl", label: "Polština" },
-  { code: "fr", label: "Francouzština" },
-  { code: "es", label: "Španělština" },
-  { code: "it", label: "Italština" },
-  { code: "uk", label: "Ukrajinština" },
-  { code: "ru", label: "Ruština" },
-  { code: "auto", label: "Automaticky rozpoznat" },
-];
-
-export const STATUS_LABEL: Record<string, string> = {
-  QUEUED: "Ve frontě",
-  PROCESSING: "Zpracovává se",
-  COMPLETED: "Hotovo",
-  FAILED: "Chyba",
-};
-
-export const PHASE_LABEL: Record<string, string> = {
-  QUEUED: "Ve frontě",
-  CONVERTING: "Konverze audia",
-  TRANSCRIBING: "Přepis",
-  DIARIZING: "Rozpoznávání mluvčích",
-  COMPLETED: "Hotovo",
-  FAILED: "Chyba",
-};
+/** Transcription languages offered in the upload form (labels come from messages.languages). */
+export const LANGUAGE_CODES = ["cs", "sk", "en", "de", "pl", "fr", "es", "it", "uk", "ru", "auto"] as const;

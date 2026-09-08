@@ -11,7 +11,7 @@ export async function GET(_req: Request, { params }: Ctx) {
   ensurePollerStarted();
   const { id } = await params;
   const rec = getRecording(id);
-  return rec ? NextResponse.json(rec) : NextResponse.json({ error: "Nenalezeno" }, { status: 404 });
+  return rec ? NextResponse.json(rec) : NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
 }
 
 export async function PATCH(req: Request, { params }: Ctx) {
@@ -20,14 +20,14 @@ export async function PATCH(req: Request, { params }: Ctx) {
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ error: "Neplatné JSON" }, { status: 400 });
+    return NextResponse.json({ error: "INVALID_JSON" }, { status: 400 });
   }
   const rec = updateRecording(id, body);
-  return rec ? NextResponse.json(rec) : NextResponse.json({ error: "Nenalezeno" }, { status: 404 });
+  return rec ? NextResponse.json(rec) : NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
 }
 
 export async function DELETE(_req: Request, { params }: Ctx) {
   const { id } = await params;
   const ok = await deleteRecording(id);
-  return ok ? new NextResponse(null, { status: 204 }) : NextResponse.json({ error: "Nenalezeno" }, { status: 404 });
+  return ok ? new NextResponse(null, { status: 204 }) : NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
 }

@@ -4,11 +4,14 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import type { RecordingSummary } from "@note-taker/shared";
 import { StatusBadge } from "./StatusBadge";
-import { formatDate, formatDuration } from "@/lib/format";
+import { errorLabel, formatDate, formatDuration, phaseLabel } from "@/lib/format";
+import { fmt } from "@/lib/i18n";
+import { useI18n } from "@/lib/i18n/client";
 
 const POLL_MS = 3000;
 
 export function RecordingList({ initial }: { initial: RecordingSummary[] }) {
+  const { locale, m } = useI18n();
   const [items, setItems] = useState(initial);
   const [error, setError] = useState<string | null>(null);
 
@@ -31,7 +34,7 @@ export function RecordingList({ initial }: { initial: RecordingSummary[] }) {
   }, [inflight, refresh]);
 
   const remove = async (rec: RecordingSummary) => {
-    if (!confirm(`Smazat nahrávku „${rec.title}“ včetně přepisu?`)) return;
+    if (!confirm(fmt(m.list.confirmDelete, { title: rec.title }))) return;
     const r = await fetch(`/api/recordings/${rec.id}`, { method: "DELETE" });
     if (r.ok) setItems((xs) => xs.filter((x) => x.id !== rec.id));
   };
@@ -44,19 +47,19 @@ export function RecordingList({ initial }: { initial: RecordingSummary[] }) {
   return (
     <div>
       <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Nahrávky</h1>
+        <h1 className="text-2xl font-semibold">{m.list.title}</h1>
         <Link href="/upload" className="btn btn-primary">
-          + Nahrát schůzku
+          {m.list.upload}
         </Link>
       </div>
 
-      {error && <p className="mb-3 text-sm text-red-600">Nepodařilo se načíst seznam: {error}</p>}
+      {error && <p className="mb-3 text-sm text-red-600">{fmt(m.errors.LIST_FAILED, { msg: error })}</p>}
 
       {items.length === 0 ? (
         <div className="card p-10 text-center text-zinc-500">
-          Zatím žádné nahrávky.{" "}
+          {m.list.empty}{" "}
           <Link href="/upload" className="text-blue-600 underline">
-            Nahrajte první schůzku
+            {m.list.emptyCta}
           </Link>
           .
         </div>
@@ -65,56 +68,60 @@ export function RecordingList({ initial }: { initial: RecordingSummary[] }) {
           <table className="w-full text-sm">
             <thead className="bg-zinc-50 text-left text-xs uppercase tracking-wide text-zinc-500 dark:bg-zinc-800/60">
               <tr>
-                <th className="px-4 py-2">Název</th>
-                <th className="px-4 py-2">Datum</th>
-                <th className="px-4 py-2">Délka</th>
-                <th className="px-4 py-2">Mluvčí</th>
-                <th className="px-4 py-2">Stav</th>
+                <th className="px-4 py-2">{m.list.name}</th>
+                <th className="px-4 py-2">{m.list.date}</th>
+                <th className="px-4 py-2">{m.list.duration}</th>
+                <th className="px-4 py-2">{m.list.speakers}</th>
+                <th className="px-4 py-2">{m.list.state}</th>
                 <th className="px-4 py-2" />
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-              {items.map((rec) => (
-                <tr key={rec.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/40">
-                  <td className="px-4 py-2.5">
-                    <Link href={`/recordings/${rec.id}`} className="font-medium hover:underline">
-                      {rec.title}
-                    </Link>
-                    <div className="text-xs text-zinc-500">{rec.originalFilename}</div>
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-2.5 text-zinc-600 dark:text-zinc-400">{formatDate(rec.createdAt)}</td>
-                  <td className="whitespace-nowrap px-4 py-2.5">{formatDuration(rec.durationSec)}</td>
-                  <td className="px-4 py-2.5">{rec.speakerCount ?? "–"}</td>
-                  <td className="px-4 py-2.5">
-                    <div className="flex flex-col gap-1">
-                      <StatusBadge status={rec.status} phase={rec.phase} progress={rec.progress} />
-                      {(rec.status === "PROCESSING" || rec.status === "QUEUED") && (
-                        <div className="text-xs text-zinc-500">{rec.phase}</div>
+              {items.map((rec) => {
+                const phase = phaseLabel(rec.phase, m);
+                const err = errorLabel(rec.error, m);
+                return (
+                  <tr key={rec.id} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/40">
+                    <td className="px-4 py-2.5">
+                      <Link href={`/recordings/${rec.id}`} className="font-medium hover:underline">
+                        {rec.title}
+                      </Link>
+                      <div className="text-xs text-zinc-500">{rec.originalFilename}</div>
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-2.5 text-zinc-600 dark:text-zinc-400">{formatDate(rec.createdAt, locale)}</td>
+                    <td className="whitespace-nowrap px-4 py-2.5">{formatDuration(rec.durationSec, m)}</td>
+                    <td className="px-4 py-2.5">{rec.speakerCount ?? "–"}</td>
+                    <td className="px-4 py-2.5">
+                      <div className="flex flex-col gap-1">
+                        <StatusBadge status={rec.status} title={phase} progress={rec.progress} />
+                        {(rec.status === "PROCESSING" || rec.status === "QUEUED") && phase && (
+                          <div className="text-xs text-zinc-500">{phase}</div>
+                        )}
+                        {rec.status === "PROCESSING" && (
+                          <div className="h-1 w-32 overflow-hidden rounded bg-zinc-200 dark:bg-zinc-700">
+                            <div className="h-full bg-blue-500 transition-all" style={{ width: `${rec.progress}%` }} />
+                          </div>
+                        )}
+                        {rec.status === "FAILED" && err && (
+                          <div className="max-w-xs truncate text-xs text-red-600" title={err}>
+                            {err}
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-2.5 text-right">
+                      {rec.status === "FAILED" && (
+                        <button className="btn mr-2" onClick={() => retry(rec)}>
+                          {m.list.retry}
+                        </button>
                       )}
-                      {rec.status === "PROCESSING" && (
-                        <div className="h-1 w-32 overflow-hidden rounded bg-zinc-200 dark:bg-zinc-700">
-                          <div className="h-full bg-blue-500 transition-all" style={{ width: `${rec.progress}%` }} />
-                        </div>
-                      )}
-                      {rec.status === "FAILED" && rec.error && (
-                        <div className="max-w-xs truncate text-xs text-red-600" title={rec.error}>
-                          {rec.error}
-                        </div>
-                      )}
-                    </div>
-                  </td>
-                  <td className="whitespace-nowrap px-4 py-2.5 text-right">
-                    {rec.status === "FAILED" && (
-                      <button className="btn mr-2" onClick={() => retry(rec)}>
-                        Zkusit znovu
+                      <button className="btn btn-danger" onClick={() => remove(rec)}>
+                        {m.list.delete}
                       </button>
-                    )}
-                    <button className="btn btn-danger" onClick={() => remove(rec)}>
-                      Smazat
-                    </button>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

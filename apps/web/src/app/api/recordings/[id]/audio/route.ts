@@ -26,7 +26,7 @@ const MIME: Record<string, string> = {
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const row = getRecordingRow(id);
-  if (!row) return NextResponse.json({ error: "Nenalezeno" }, { status: 404 });
+  if (!row) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
 
   const file =
     row.audioPath && fs.existsSync(row.audioPath)
@@ -34,7 +34,7 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       : fs.existsSync(row.originalPath)
         ? row.originalPath
         : null;
-  if (!file) return NextResponse.json({ error: "Audio není k dispozici" }, { status: 404 });
+  if (!file) return NextResponse.json({ error: "AUDIO_UNAVAILABLE" }, { status: 404 });
 
   const size = fs.statSync(file).size;
   const mime = MIME[path.extname(file).toLowerCase()] ?? "application/octet-stream";

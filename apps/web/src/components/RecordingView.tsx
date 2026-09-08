@@ -5,19 +5,17 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ExportFormat, RecordingDetail } from "@note-taker/shared";
 import { StatusBadge } from "./StatusBadge";
-import { formatDate, formatDuration, formatTime, groupTurns, speakerColor, speakerLabel, LANGUAGES } from "@/lib/format";
+import { errorLabel, formatDate, formatDuration, formatTime, groupTurns, phaseLabel, speakerColor, speakerLabel } from "@/lib/format";
+import { fmt } from "@/lib/i18n";
+import { useI18n } from "@/lib/i18n/client";
 
 const POLL_MS = 2500;
 const RATES = [1, 1.25, 1.5, 1.75, 2] as const;
 const SKIP_SEC = 5;
-const EXPORTS: Array<{ format: ExportFormat; label: string }> = [
-  { format: "md", label: "Markdown" },
-  { format: "txt", label: "Čistý text" },
-  { format: "srt", label: "SRT" },
-  { format: "vtt", label: "VTT" },
-];
+const EXPORTS: ExportFormat[] = ["md", "txt", "srt", "vtt"];
 
 export function RecordingView({ initial }: { initial: RecordingDetail }) {
+  const { locale, m } = useI18n();
   const router = useRouter();
   const [rec, setRec] = useState(initial);
   const inflight = rec.status === "QUEUED" || rec.status === "PROCESSING";
@@ -147,7 +145,7 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
   };
 
   const remove = async () => {
-    if (!confirm(`Smazat nahrávku „${rec.title}“ včetně přepisu?`)) return;
+    if (!confirm(fmt(m.list.confirmDelete, { title: rec.title }))) return;
     const r = await fetch(`/api/recordings/${rec.id}`, { method: "DELETE" });
     if (r.ok) router.push("/");
   };
@@ -157,8 +155,10 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
     if (r.ok) setRec((await r.json()) as RecordingDetail);
   };
 
-  const label = (id: string) => speakerLabel(id, rec.speakers, names);
-  const langLabel = LANGUAGES.find((l) => l.code === rec.language)?.label ?? rec.language;
+  const label = (id: string) => speakerLabel(id, rec.speakers, names, m);
+  const langLabel = (m.languages as Record<string, string>)[rec.language] ?? rec.language;
+  const phase = phaseLabel(rec.phase, m);
+  const err = errorLabel(rec.error, m);
 
   // ------------------------------------------------------------------ render
   return (
@@ -166,7 +166,7 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <Link href="/" className="text-sm text-zinc-500 hover:underline">
-            ← Nahrávky
+            {m.detail.back}
           </Link>
           {editingTitle ? (
             <input
@@ -186,7 +186,7 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
           ) : (
             <h1
               className="mt-1 cursor-text truncate text-2xl font-semibold hover:opacity-80"
-              title="Kliknutím přejmenujete"
+              title={m.detail.renameHint}
               onClick={() => {
                 setTitleDraft(rec.title);
                 setEditingTitle(true);
@@ -196,11 +196,11 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
             </h1>
           )}
           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-zinc-500">
-            <StatusBadge status={rec.status} phase={rec.phase} progress={rec.progress} />
-            <span>{formatDate(rec.createdAt)}</span>
-            <span>{formatDuration(rec.durationSec)}</span>
+            <StatusBadge status={rec.status} title={phase} progress={rec.progress} />
+            <span>{formatDate(rec.createdAt, locale)}</span>
+            <span>{formatDuration(rec.durationSec, m)}</span>
             <span>{langLabel}</span>
-            {rec.speakerCount != null && <span>{rec.speakerCount} mluvčí</span>}
+            {rec.speakerCount != null && <span>{fmt(m.detail.speakersCount, { n: rec.speakerCount })}</span>}
             <span className="truncate" title={rec.originalFilename}>
               {rec.originalFilename}
             </span>
@@ -209,21 +209,21 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
         <div className="flex flex-wrap items-center gap-2">
           {rec.status === "COMPLETED" && (
             <div className="flex items-center gap-1">
-              <span className="mr-1 text-xs text-zinc-500">Export:</span>
-              {EXPORTS.map((e) => (
-                <a key={e.format} className="btn" href={`/api/recordings/${rec.id}/export?format=${e.format}`}>
-                  {e.label}
+              <span className="mr-1 text-xs text-zinc-500">{m.detail.export}</span>
+              {EXPORTS.map((f) => (
+                <a key={f} className="btn" href={`/api/recordings/${rec.id}/export?format=${f}`}>
+                  {m.detail.exportFormats[f]}
                 </a>
               ))}
             </div>
           )}
           {rec.status === "FAILED" && (
             <button className="btn" onClick={retry}>
-              Zkusit znovu
+              {m.detail.retry}
             </button>
           )}
           <button className="btn btn-danger" onClick={remove}>
-            Smazat
+            {m.detail.delete}
           </button>
         </div>
       </div>
@@ -231,23 +231,23 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
       {inflight && (
         <div className="card p-5">
           <div className="mb-2 flex items-center justify-between text-sm">
-            <span className="font-medium">{rec.phase ?? "Zpracovává se…"}</span>
+            <span className="font-medium">{phase ?? m.detail.processing}</span>
             <span className="text-zinc-500">{rec.progress} %</span>
           </div>
           <div className="h-2 overflow-hidden rounded bg-zinc-200 dark:bg-zinc-700">
             <div className="h-full bg-blue-500 transition-all duration-500" style={{ width: `${rec.progress}%` }} />
           </div>
-          {rec.error && <p className="mt-2 text-xs text-amber-600">{rec.error}</p>}
+          {err && <p className="mt-2 text-xs text-amber-600">{err}</p>}
           <p className="mt-3 text-xs text-zinc-500">
-            Stránka se aktualizuje automaticky. Přepis se zobrazí po dokončení; mezitím si můžete nahrávku poslechnout.
+            {m.detail.autoRefresh}
           </p>
         </div>
       )}
 
       {rec.status === "FAILED" && (
         <div className="card border-red-300 p-5 dark:border-red-800">
-          <div className="font-medium text-red-700 dark:text-red-300">Zpracování selhalo</div>
-          <pre className="mt-2 whitespace-pre-wrap text-xs text-red-600 dark:text-red-400">{rec.error}</pre>
+          <div className="font-medium text-red-700 dark:text-red-300">{m.detail.failed}</div>
+          <pre className="mt-2 whitespace-pre-wrap text-xs text-red-600 dark:text-red-400">{err}</pre>
         </div>
       )}
 
@@ -267,13 +267,13 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
             onEnded={() => setPlaying(false)}
           />
           <div className="flex flex-wrap items-center gap-2">
-            <button className="btn" onClick={() => skip(-SKIP_SEC)} title="−5 s (←)">
+            <button className="btn" onClick={() => skip(-SKIP_SEC)} title={m.detail.back5}>
               ⏪ 5 s
             </button>
-            <button className="btn btn-primary w-24 justify-center" onClick={toggle} title="Přehrát / pauza (mezerník)">
-              {playing ? "⏸ Pauza" : "▶ Přehrát"}
+            <button className="btn btn-primary w-24 justify-center" onClick={toggle} title={m.detail.playPauseHint}>
+              {playing ? m.detail.pause : m.detail.play}
             </button>
-            <button className="btn" onClick={() => skip(SKIP_SEC)} title="+5 s (→)">
+            <button className="btn" onClick={() => skip(SKIP_SEC)} title={m.detail.fwd5}>
               5 s ⏩
             </button>
             <div className="ml-1 flex items-center gap-0.5 rounded-md border border-zinc-300 p-0.5 dark:border-zinc-700">
@@ -309,14 +309,14 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
         <div className="grid gap-5 lg:grid-cols-[1fr_260px]">
           <section className="card p-5">
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="font-semibold">Přepis</h2>
+              <h2 className="font-semibold">{m.detail.transcript}</h2>
               <label className="flex items-center gap-1.5 text-xs text-zinc-500">
                 <input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} />
-                Sledovat přehrávání
+                {m.detail.follow}
               </label>
             </div>
             {turns.length === 0 ? (
-              <p className="text-sm text-zinc-500">V nahrávce nebyla rozpoznána žádná řeč.</p>
+              <p className="text-sm text-zinc-500">{m.detail.noSpeech}</p>
             ) : (
               <div className="space-y-4">
                 {turns.map((turn, ti) => {
@@ -360,9 +360,9 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
           </section>
 
           <aside className="card h-fit p-5 lg:sticky lg:top-40">
-            <h2 className="mb-3 font-semibold">Mluvčí</h2>
+            <h2 className="mb-3 font-semibold">{m.detail.speakers}</h2>
             {rec.speakers.length === 0 ? (
-              <p className="text-sm text-zinc-500">Bez rozpoznaných mluvčích.</p>
+              <p className="text-sm text-zinc-500">{m.detail.noSpeakers}</p>
             ) : (
               <div className="space-y-2">
                 {rec.speakers.map((id) => {
@@ -382,7 +382,7 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
                   );
                 })}
                 <p className="pt-1 text-xs text-zinc-500">
-                  {saving ? "Ukládám…" : "Přejmenování se promítne v přepisu i exportech."}
+                  {saving ? m.detail.saving : m.detail.renameNote}
                 </p>
               </div>
             )}

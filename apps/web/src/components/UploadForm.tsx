@@ -3,7 +3,9 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useRef, useState } from "react";
 import type { RecordingDetail } from "@note-taker/shared";
-import { LANGUAGES } from "@/lib/format";
+import { errorLabel, LANGUAGE_CODES } from "@/lib/format";
+import { fmt } from "@/lib/i18n";
+import { useI18n } from "@/lib/i18n/client";
 
 const ACCEPT = ".mp3,.m4a,.wav,.aac,.ogg,.oga,.opus,.flac,.wma,.webm,.mp4,.m4v,.mov,.mkv,.avi,.3gp,.amr,audio/*,video/*";
 
@@ -14,6 +16,7 @@ function fmtBytes(b: number): string {
 }
 
 export function UploadForm({ defaultLanguage, maxUploadBytes }: { defaultLanguage: string; maxUploadBytes: number }) {
+  const { m } = useI18n();
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
@@ -29,20 +32,20 @@ export function UploadForm({ defaultLanguage, maxUploadBytes }: { defaultLanguag
     (f: File | undefined) => {
       if (!f) return;
       if (f.size > maxUploadBytes) {
-        setError(`Soubor je příliš velký (max ${fmtBytes(maxUploadBytes)})`);
+        setError(fmt(m.errors.FILE_TOO_LARGE, { mb: Math.round(maxUploadBytes / 1024 / 1024) }));
         return;
       }
       setError(null);
       setFile(f);
       if (!title) setTitle(f.name.replace(/\.[^.]+$/, ""));
     },
-    [maxUploadBytes, title],
+    [maxUploadBytes, title, m],
   );
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!file) {
-      setError("Vyberte audio soubor");
+      setError(m.upload.selectFile);
       return;
     }
     const form = new FormData();
@@ -64,9 +67,10 @@ export function UploadForm({ defaultLanguage, maxUploadBytes }: { defaultLanguag
         const rec = JSON.parse(xhr.responseText) as RecordingDetail;
         router.push(`/recordings/${rec.id}`);
       } else {
-        let msg = `Chyba ${xhr.status}`;
+        let msg = fmt(m.errors.HTTP, { status: xhr.status });
         try {
-          msg = (JSON.parse(xhr.responseText) as { error?: string }).error ?? msg;
+          const code = (JSON.parse(xhr.responseText) as { error?: string }).error;
+          if (code) msg = errorLabel(code, m) ?? msg;
         } catch {
           /* ignore */
         }
@@ -75,7 +79,7 @@ export function UploadForm({ defaultLanguage, maxUploadBytes }: { defaultLanguag
       }
     };
     xhr.onerror = () => {
-      setError("Nahrávání selhalo (síťová chyba)");
+      setError(m.errors.NETWORK);
       setProgress(null);
     };
     xhr.send(form);
@@ -107,44 +111,44 @@ export function UploadForm({ defaultLanguage, maxUploadBytes }: { defaultLanguag
         {file ? (
           <>
             <div className="text-base font-medium">{file.name}</div>
-            <div className="mt-1 text-sm text-zinc-500">{fmtBytes(file.size)} · klikněte pro změnu</div>
+            <div className="mt-1 text-sm text-zinc-500">{fmtBytes(file.size)} · {m.upload.clickToChange}</div>
           </>
         ) : (
           <>
             <div className="text-3xl">🎧</div>
-            <div className="mt-2 font-medium">Přetáhněte sem audio nebo klikněte pro výběr</div>
-            <div className="mt-1 text-sm text-zinc-500">MP3, M4A, WAV, AAC, OGG, FLAC, MP4/MOV (zvuková stopa)…</div>
+            <div className="mt-2 font-medium">{m.upload.dropHere}</div>
+            <div className="mt-1 text-sm text-zinc-500">{m.upload.formats}</div>
           </>
         )}
       </div>
 
       <div>
-        <label className="mb-1 block text-sm font-medium">Název schůzky</label>
-        <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Např. Týdenní sync 8. 9." />
+        <label className="mb-1 block text-sm font-medium">{m.upload.name}</label>
+        <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder={m.upload.namePlaceholder} />
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
         <div>
-          <label className="mb-1 block text-sm font-medium">Jazyk</label>
+          <label className="mb-1 block text-sm font-medium">{m.upload.language}</label>
           <select className="input" value={language} onChange={(e) => setLanguage(e.target.value)}>
-            {LANGUAGES.map((l) => (
-              <option key={l.code} value={l.code}>
-                {l.label}
+            {LANGUAGE_CODES.map((code) => (
+              <option key={code} value={code}>
+                {m.languages[code]}
               </option>
             ))}
           </select>
         </div>
         <div>
-          <label className="mb-1 block text-sm font-medium">Min. mluvčích</label>
-          <input className="input" type="number" min={1} max={20} value={minSpeakers} onChange={(e) => setMinSpeakers(e.target.value)} placeholder="volitelné" />
+          <label className="mb-1 block text-sm font-medium">{m.upload.minSpeakers}</label>
+          <input className="input" type="number" min={1} max={20} value={minSpeakers} onChange={(e) => setMinSpeakers(e.target.value)} placeholder={m.upload.optional} />
         </div>
         <div>
-          <label className="mb-1 block text-sm font-medium">Max. mluvčích</label>
-          <input className="input" type="number" min={1} max={20} value={maxSpeakers} onChange={(e) => setMaxSpeakers(e.target.value)} placeholder="volitelné" />
+          <label className="mb-1 block text-sm font-medium">{m.upload.maxSpeakers}</label>
+          <input className="input" type="number" min={1} max={20} value={maxSpeakers} onChange={(e) => setMaxSpeakers(e.target.value)} placeholder={m.upload.optional} />
         </div>
       </div>
       <p className="-mt-3 text-xs text-zinc-500">
-        Odhad počtu mluvčích zpřesní diarizaci. Pokud znáte přesný počet, zadejte stejné číslo do obou polí.
+        {m.upload.speakersHint}
       </p>
 
       {error && <p className="text-sm text-red-600">{error}</p>}
@@ -152,7 +156,7 @@ export function UploadForm({ defaultLanguage, maxUploadBytes }: { defaultLanguag
       {uploading && (
         <div>
           <div className="mb-1 flex justify-between text-xs text-zinc-500">
-            <span>{progress! < 100 ? "Nahrávám na server…" : "Předávám workeru…"}</span>
+            <span>{progress! < 100 ? m.upload.uploading : m.upload.handingOver}</span>
             <span>{progress} %</span>
           </div>
           <div className="h-2 overflow-hidden rounded bg-zinc-200 dark:bg-zinc-700">
@@ -163,7 +167,7 @@ export function UploadForm({ defaultLanguage, maxUploadBytes }: { defaultLanguag
 
       <div className="flex justify-end gap-2">
         <button type="submit" className="btn btn-primary" disabled={uploading || !file}>
-          {uploading ? "Nahrávám…" : "Nahrát a přepsat"}
+          {uploading ? m.upload.submitting : m.upload.submit}
         </button>
       </div>
     </form>
