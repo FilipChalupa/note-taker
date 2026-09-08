@@ -190,7 +190,7 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
+        <div className="min-w-[16rem] flex-1 basis-[28rem]">
           <Link href="/" className="text-sm text-zinc-500 hover:underline">
             {m.detail.back}
           </Link>
@@ -211,7 +211,7 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
             />
           ) : (
             <h1
-              className="mt-1 cursor-text truncate text-2xl font-semibold hover:opacity-80"
+              className="mt-1 cursor-text break-words text-2xl font-semibold hover:opacity-80"
               title={m.detail.renameHint}
               onClick={() => {
                 setTitleDraft(rec.title);

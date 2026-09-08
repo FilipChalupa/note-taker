@@ -22,6 +22,18 @@ on completion it downloads the result and the normalized audio and stores both l
 may be offline: the recording stays "queued" and the web app hands it over as soon as the worker is
 reachable again.
 
+## Screenshots
+
+Sample data shown below is fictional.
+
+| Recordings overview | Recording detail |
+| --- | --- |
+| ![Recordings list with live status](docs/screenshots/recordings.png) | ![Transcript with color-coded speakers and player](docs/screenshots/transcript.png) |
+
+| Processing queue | Upload |
+| --- | --- |
+| ![Queue with ETA and speed](docs/screenshots/queue.png) | ![Upload form with drag & drop](docs/screenshots/upload.png) |
+
 ## Quick start
 
 ### 1. Worker (Windows + WSL2 + NVIDIA GPU)
