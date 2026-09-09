@@ -202,6 +202,11 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editDraft, setEditDraft] = useState("");
   const [hintsDraft, setHintsDraft] = useState(rec.hints ?? "");
+  const [tagsDraft, setTagsDraft] = useState(rec.tags.join(", "));
+  const [notesDraft, setNotesDraft] = useState(rec.notes ?? "");
+  const [notesSaved, setNotesSaved] = useState(false);
+  useEffect(() => setTagsDraft(rec.tags.join(", ")), [rec.tags]);
+  useEffect(() => setNotesDraft(rec.notes ?? ""), [rec.notes]);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState(rec.title);
   const [names, setNames] = useState<Record<string, string>>(rec.speakerNames);
@@ -209,7 +214,32 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
 
   useEffect(() => setNames(rec.speakerNames), [rec.speakerNames]);
 
-  const patch = async (body: { title?: string; speakerNames?: Record<string, string>; hints?: string | null }) => {
+  const applySuggestions = async (speakers?: string[]) => {
+    setSaving(true);
+    try {
+      const r = await fetch(`/api/recordings/${rec.id}/speakers/apply-suggestions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ speakers }),
+      });
+      if (r.ok) {
+        const next = (await r.json()) as RecordingDetail;
+        setRec(next);
+        setNames(next.speakerNames);
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveNotes = async () => {
+    if (notesDraft === (rec.notes ?? "")) return;
+    await patch({ notes: notesDraft });
+    setNotesSaved(true);
+    setTimeout(() => setNotesSaved(false), 1500);
+  };
+
+  const patch = async (body: { title?: string; speakerNames?: Record<string, string>; hints?: string | null; tags?: string; notes?: string | null }) => {
     setSaving(true);
     try {
       const r = await fetch(`/api/recordings/${rec.id}`, {
@@ -473,6 +503,22 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
               {rec.originalFilename}
             </span>
           </div>
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            {rec.tags.map((t) => (
+              <Link key={t} href={`/?tag=${encodeURIComponent(t)}`} className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700">
+                {t}
+              </Link>
+            ))}
+            <input
+              className="input w-56 max-w-full py-0.5 text-xs"
+              value={tagsDraft}
+              placeholder={m.tags.placeholder}
+              aria-label={m.tags.label}
+              onChange={(e) => setTagsDraft(e.target.value)}
+              onBlur={() => tagsDraft !== rec.tags.join(", ") && void patch({ tags: tagsDraft })}
+              onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+            />
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {rec.status === "COMPLETED" && (
@@ -583,6 +629,21 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
           />
         </div>
       )}
+
+      <section className="card p-4">
+        <div className="mb-1 flex items-center justify-between">
+          <h2 className="text-sm font-semibold">{m.notes.label}</h2>
+          <span className="text-xs text-zinc-500">{notesSaved ? m.notes.saved : ""}</span>
+        </div>
+        <textarea
+          className="input min-h-[72px] text-sm"
+          value={notesDraft}
+          placeholder={m.notes.placeholder}
+          aria-label={m.notes.label}
+          onChange={(e) => setNotesDraft(e.target.value)}
+          onBlur={saveNotes}
+        />
+      </section>
 
       {rec.status === "COMPLETED" && (
         <div className="grid gap-5 lg:grid-cols-[1fr_260px]">
@@ -712,6 +773,11 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
 
           <aside className="card h-fit p-5 lg:sticky lg:top-40">
             <h2 className="mb-3 font-semibold">{m.detail.speakers}</h2>
+            {Object.keys(rec.speakerSuggestions).some((id) => !names[id]) && (
+              <button className="btn mb-3 w-full justify-center py-1 text-xs" onClick={() => applySuggestions()} data-testid="apply-all-suggestions">
+                ✨ {m.voices.applyAll}
+              </button>
+            )}
             {rec.speakers.length === 0 ? (
               <p className="text-sm text-zinc-500">{m.detail.noSpeakers}</p>
             ) : (
@@ -729,6 +795,16 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
                         onBlur={saveNames}
                         onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
                       />
+                      {rec.speakerSuggestions[id] && !names[id] && (
+                        <button
+                          className="shrink-0 rounded border border-blue-300 bg-blue-50 px-1.5 py-1 text-xs text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300"
+                          title={`${fmt(m.voices.looksLike, { name: rec.speakerSuggestions[id].name })} · ${Math.round(rec.speakerSuggestions[id].score * 100)} % · ${rec.speakerSuggestions[id].score >= 0.7 ? m.voices.strong : m.voices.weak}`}
+                          onClick={() => applySuggestions([id])}
+                          data-testid={`suggestion-${id}`}
+                        >
+                          ✨ {rec.speakerSuggestions[id].name} {Math.round(rec.speakerSuggestions[id].score * 100)} %
+                        </button>
+                      )}
                       {rec.speakers.length > 1 && (
                         <select
                           className="w-8 shrink-0 rounded border border-zinc-300 bg-white py-1 text-xs text-zinc-500 dark:border-zinc-700 dark:bg-zinc-900"
@@ -751,7 +827,7 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
                   );
                 })}
                 <p className="pt-1 text-xs text-zinc-500">
-                  {saving ? m.detail.saving : m.detail.renameNote}
+                  {saving ? m.detail.saving : rec.speakersWithEmbedding.length > 0 ? `${m.detail.renameNote} ${m.voices.help}` : m.detail.renameNote}
                 </p>
               </div>
             )}

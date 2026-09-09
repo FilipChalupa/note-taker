@@ -96,6 +96,8 @@ export interface WorkerTaskResult {
   /** Distinct speaker ids in order of first appearance. */
   speakers: string[];
   segments: TranscriptSegment[];
+  /** Per-speaker voice embeddings from the diarization model (null when diarization did not run). */
+  speaker_embeddings: Record<string, number[]> | null;
   /** Relative URL (on the worker) of the normalized 16 kHz mono audio. */
   audio_url: string;
   audio_mime: string;
@@ -118,6 +120,11 @@ export interface WorkerHealth {
     vram_total_mb: number | null;
     vram_free_mb: number | null;
     vram_used_mb: number | null;
+    /** Live telemetry from nvidia-smi (whole GPU). */
+    utilization_pct: number | null;
+    temperature_c: number | null;
+    power_w: number | null;
+    memory_used_mb: number | null;
   };
   queue: {
     pending: number;
@@ -145,6 +152,8 @@ export interface RecordingSummary {
   error: string | null;
   /** Non-fatal problem with the result, e.g. "DIARIZATION_FAILED:<reason>". */
   warning: string | null;
+  /** Free-form labels: project, customer, meeting type… */
+  tags: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -152,6 +161,12 @@ export interface RecordingSummary {
 export interface RecordingDetail extends RecordingSummary {
   /** Per-recording vocabulary hints (names, products...) given at upload. */
   hints: string | null;
+  /** Free-text notes about the meeting (Markdown allowed). */
+  notes: string | null;
+  /** Known-voice suggestions per raw speaker id, from voice embeddings. */
+  speakerSuggestions: Record<string, VoiceSuggestion>;
+  /** Raw speaker ids that have a voice embedding (can be learned as a known voice). */
+  speakersWithEmbedding: string[];
   /** Map of raw speaker id (SPEAKER_00) to user-provided display name. */
   speakerNames: Record<string, string>;
   speakers: string[];
@@ -188,6 +203,36 @@ export interface StorageInfo {
   /** Free / total space of the volume holding DATA_DIR (null when unavailable). */
   volumeFreeBytes: number | null;
   volumeTotalBytes: number | null;
+  importDir: ImportDirInfo;
+}
+
+export interface VoiceSuggestion {
+  voiceId: string;
+  name: string;
+  /** cosine similarity 0..1 */
+  score: number;
+}
+
+/** A known voice learned from renamed speakers. */
+export interface Voice {
+  id: string;
+  name: string;
+  samples: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TagCount {
+  tag: string;
+  count: number;
+}
+
+export interface ImportDirInfo {
+  path: string | null;
+  enabled: boolean;
+  /** Files currently waiting in the folder. */
+  pending: number;
+  imported: number;
 }
 
 export interface AppSettings {

@@ -1,14 +1,26 @@
 "use client";
 
 import { useState } from "react";
-import type { AppSettings, StorageInfo } from "@note-taker/shared";
+import type { AppSettings, StorageInfo, Voice } from "@note-taker/shared";
 import { fmt } from "@/lib/i18n";
 import { useI18n } from "@/lib/i18n/client";
 import { formatBytes } from "@/lib/format";
 import { NotificationsToggle } from "./NotificationsToggle";
 
-export function SettingsView({ initial, storage }: { initial: AppSettings; storage: StorageInfo }) {
+export function SettingsView({ initial, storage, voices: initialVoices }: { initial: AppSettings; storage: StorageInfo; voices: Voice[] }) {
   const { m } = useI18n();
+  const [voices, setVoices] = useState(initialVoices);
+  const renameVoice = async (v: Voice) => {
+    const name = prompt(m.voices.rename, v.name);
+    if (!name || name.trim() === v.name) return;
+    const r = await fetch(`/api/voices/${v.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
+    if (r.ok) setVoices((vs) => vs.map((x) => (x.id === v.id ? { ...x, name: name.trim() } : x)));
+  };
+  const deleteVoice = async (v: Voice) => {
+    if (!confirm(fmt(m.voices.confirmDelete, { name: v.name }))) return;
+    const r = await fetch(`/api/voices/${v.id}`, { method: "DELETE" });
+    if (r.ok) setVoices((vs) => vs.filter((x) => x.id !== v.id));
+  };
   const [glossary, setGlossary] = useState(initial.glossary);
   const [state, setState] = useState<"idle" | "saving" | "saved">("idle");
 
@@ -37,6 +49,46 @@ export function SettingsView({ initial, storage }: { initial: AppSettings; stora
           </button>
           {state === "saved" && <span className="text-sm text-emerald-600">{m.settings.saved}</span>}
         </div>
+      </section>
+
+      <section className="card p-5">
+        <h2 className="font-semibold">{m.voices.title}</h2>
+        <p className="mb-3 mt-1 text-sm text-zinc-500">{m.voices.help}</p>
+        {voices.length === 0 ? (
+          <p className="text-sm text-zinc-500">{m.voices.none}</p>
+        ) : (
+          <ul className="divide-y divide-zinc-100 dark:divide-zinc-800" data-testid="voices">
+            {voices.map((v) => (
+              <li key={v.id} className="flex items-center gap-3 py-2 text-sm">
+                <span className="font-medium">{v.name}</span>
+                <span className="text-xs text-zinc-500">{fmt(m.voices.samples, { n: v.samples })}</span>
+                <span className="ml-auto flex gap-1">
+                  <button className="btn px-2 py-1 text-xs" onClick={() => renameVoice(v)}>
+                    {m.voices.rename}
+                  </button>
+                  <button className="btn btn-danger px-2 py-1 text-xs" onClick={() => deleteVoice(v)}>
+                    {m.voices.delete}
+                  </button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="card p-5">
+        <h2 className="font-semibold">{m.importDir.title}</h2>
+        <p className="mt-1 text-sm text-zinc-500">{storage.importDir.enabled ? m.importDir.enabled : m.importDir.disabled}</p>
+        {storage.importDir.path && (
+          <p className="mt-2 text-sm">
+            <code className="text-xs">{storage.importDir.path}</code>
+            {storage.importDir.enabled && (
+              <span className="ml-3 text-xs text-zinc-500">
+                {fmt(m.importDir.pending, { n: storage.importDir.pending })} · {fmt(m.importDir.imported, { n: storage.importDir.imported })}
+              </span>
+            )}
+          </p>
+        )}
       </section>
 
       <section className="card p-5">

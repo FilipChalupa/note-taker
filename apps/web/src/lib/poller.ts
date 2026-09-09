@@ -18,6 +18,8 @@ export function ensurePollerStarted(): void {
     state.running = true;
     try {
       const { syncAll } = await import("@/lib/recordings");
+      const { scanImportDir } = await import("@/lib/importer");
+      scanImportDir();
       await syncAll();
     } catch (err) {
       console.error("[poller] tick failed:", (err as Error).message);
@@ -29,5 +31,5 @@ export function ensurePollerStarted(): void {
   state.timer = setInterval(tick, config.pollIntervalMs);
   state.timer.unref?.();
   void tick();
-  console.log(`[poller] started (every ${config.pollIntervalMs} ms, worker=${config.workerApiUrl})`);
+  console.log(`[poller] started (every ${config.pollIntervalMs} ms, worker=${config.workerApiUrl}${config.importDir ? `, import=${config.importDir}` : ""})`);
 }

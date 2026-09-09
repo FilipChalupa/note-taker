@@ -1,5 +1,5 @@
 import { integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
-import type { RecordingStatus, TranscriptSegment, WorkerTaskStatus } from "@note-taker/shared";
+import type { RecordingStatus, TranscriptSegment, VoiceSuggestion, WorkerTaskStatus } from "@note-taker/shared";
 
 export const recordings = sqliteTable("recordings", {
   id: text("id").primaryKey(),
@@ -11,6 +11,10 @@ export const recordings = sqliteTable("recordings", {
   language: text("language").notNull().default("cs"),
   /** Vocabulary hints for this recording (names, products, jargon) */
   hints: text("hints"),
+  /** Free-form labels (project, customer, meeting type) */
+  tags: text("tags", { mode: "json" }).$type<string[]>().notNull().default([]),
+  /** Free-text notes about the meeting */
+  notes: text("notes"),
   minSpeakers: integer("min_speakers"),
   maxSpeakers: integer("max_speakers"),
 
@@ -33,6 +37,10 @@ export const recordings = sqliteTable("recordings", {
   speakers: text("speakers", { mode: "json" }).$type<string[]>().notNull().default([]),
   speakerNames: text("speaker_names", { mode: "json" }).$type<Record<string, string>>().notNull().default({}),
   segments: text("segments", { mode: "json" }).$type<TranscriptSegment[]>().notNull().default([]),
+  /** Voice embedding per raw speaker id from the worker */
+  speakerEmbeddings: text("speaker_embeddings", { mode: "json" }).$type<Record<string, number[]>>(),
+  /** Known-voice suggestions per raw speaker id */
+  speakerSuggestions: text("speaker_suggestions", { mode: "json" }).$type<Record<string, VoiceSuggestion>>().notNull().default({}),
 
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
@@ -41,6 +49,16 @@ export const recordings = sqliteTable("recordings", {
 export const settings = sqliteTable("settings", {
   key: text("key").primaryKey(),
   value: text("value").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+/** Known voices: mean embedding over up to N samples, each sample tied to a recording+speaker. */
+export const voices = sqliteTable("voices", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  embedding: text("embedding", { mode: "json" }).$type<number[]>().notNull(),
+  samples: text("samples", { mode: "json" }).$type<Array<{ recordingId: string; speaker: string; vector: number[] }>>().notNull().default([]),
+  createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
 

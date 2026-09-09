@@ -16,6 +16,8 @@ CREATE TABLE IF NOT EXISTS recordings (
   audio_path TEXT,
   language TEXT NOT NULL DEFAULT 'cs',
   hints TEXT,
+  tags TEXT NOT NULL DEFAULT '[]',
+  notes TEXT,
   min_speakers INTEGER,
   max_speakers INTEGER,
   status TEXT NOT NULL DEFAULT 'QUEUED',
@@ -33,6 +35,16 @@ CREATE TABLE IF NOT EXISTS recordings (
   speakers TEXT NOT NULL DEFAULT '[]',
   speaker_names TEXT NOT NULL DEFAULT '{}',
   segments TEXT NOT NULL DEFAULT '[]',
+  speaker_embeddings TEXT,
+  speaker_suggestions TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS voices (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  embedding TEXT NOT NULL,
+  samples TEXT NOT NULL DEFAULT '[]',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -75,6 +87,10 @@ function open(): Db {
   if (!cols.has("warning")) sqlite.exec("ALTER TABLE recordings ADD COLUMN warning TEXT");
   if (!cols.has("task_kind")) sqlite.exec("ALTER TABLE recordings ADD COLUMN task_kind TEXT NOT NULL DEFAULT 'transcribe'");
   if (!cols.has("hints")) sqlite.exec("ALTER TABLE recordings ADD COLUMN hints TEXT");
+  if (!cols.has("tags")) sqlite.exec("ALTER TABLE recordings ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'");
+  if (!cols.has("notes")) sqlite.exec("ALTER TABLE recordings ADD COLUMN notes TEXT");
+  if (!cols.has("speaker_embeddings")) sqlite.exec("ALTER TABLE recordings ADD COLUMN speaker_embeddings TEXT");
+  if (!cols.has("speaker_suggestions")) sqlite.exec("ALTER TABLE recordings ADD COLUMN speaker_suggestions TEXT NOT NULL DEFAULT '{}'");
   const hadFts = sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='recordings_fts'").get();
   sqlite.exec(FTS_DDL);
   if (!hadFts) {

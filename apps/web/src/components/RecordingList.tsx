@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import type { RecordingSummary } from "@note-taker/shared";
+import type { RecordingSummary, TagCount } from "@note-taker/shared";
 import { StatusBadge } from "./StatusBadge";
 import { requestWorkerRefresh } from "./WorkerStatus";
 import { errorLabel, formatDate, formatDuration, phaseLabel } from "@/lib/format";
@@ -11,21 +11,34 @@ import { useI18n } from "@/lib/i18n/client";
 
 const POLL_MS = 3000;
 
-export function RecordingList({ initial }: { initial: RecordingSummary[] }) {
+export function TagChips({ tags }: { tags: string[] }) {
+  return (
+    <div className="mt-1 flex flex-wrap gap-1">
+      {tags.map((t) => (
+        <Link key={t} href={`/?tag=${encodeURIComponent(t)}`} className="rounded-full bg-zinc-100 px-2 py-0.5 text-[11px] text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700">
+          {t}
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+export function RecordingList({ initial, tags, activeTag }: { initial: RecordingSummary[]; tags: TagCount[]; activeTag: string | null }) {
   const { locale, m } = useI18n();
   const [items, setItems] = useState(initial);
   const [error, setError] = useState<string | null>(null);
+  useEffect(() => setItems(initial), [initial]);
 
   const refresh = useCallback(async () => {
     try {
-      const r = await fetch("/api/recordings", { cache: "no-store" });
+      const r = await fetch(`/api/recordings${activeTag ? `?tag=${encodeURIComponent(activeTag)}` : ""}`, { cache: "no-store" });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       setItems((await r.json()) as RecordingSummary[]);
       setError(null);
     } catch (e) {
       setError((e as Error).message);
     }
-  }, []);
+  }, [activeTag]);
 
   const inflight = items.some((r) => r.status === "QUEUED" || r.status === "PROCESSING");
   useEffect(() => {
@@ -57,6 +70,23 @@ export function RecordingList({ initial }: { initial: RecordingSummary[] }) {
 
       {error && <p className="mb-3 text-sm text-red-600">{fmt(m.errors.LIST_FAILED, { msg: error })}</p>}
 
+      {tags.length > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-1.5" aria-label={m.tags.filterTitle}>
+          <Link href="/" className={`rounded-full px-2.5 py-0.5 text-xs ring-1 ring-inset ${!activeTag ? "bg-zinc-800 text-white ring-zinc-800 dark:bg-zinc-200 dark:text-zinc-900 dark:ring-zinc-200" : "text-zinc-600 ring-zinc-300 hover:bg-zinc-100 dark:text-zinc-300 dark:ring-zinc-700 dark:hover:bg-zinc-800"}`}>
+            {m.tags.filterAll}
+          </Link>
+          {tags.map((t) => (
+            <Link
+              key={t.tag}
+              href={`/?tag=${encodeURIComponent(t.tag)}`}
+              className={`rounded-full px-2.5 py-0.5 text-xs ring-1 ring-inset ${activeTag?.toLowerCase() === t.tag.toLowerCase() ? "bg-blue-600 text-white ring-blue-600" : "text-zinc-600 ring-zinc-300 hover:bg-zinc-100 dark:text-zinc-300 dark:ring-zinc-700 dark:hover:bg-zinc-800"}`}
+            >
+              {t.tag} <span className="opacity-60">{t.count}</span>
+            </Link>
+          ))}
+        </div>
+      )}
+
       {items.length === 0 ? (
         <div className="card p-10 text-center text-zinc-500">
           {m.list.empty}{" "}
@@ -76,6 +106,7 @@ export function RecordingList({ initial }: { initial: RecordingSummary[] }) {
                 <Link href={`/recordings/${rec.id}`} className="block font-medium hover:underline">
                   {rec.title}
                 </Link>
+                {rec.tags.length > 0 && <TagChips tags={rec.tags} />}
                 <div className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-zinc-500">
                   <span>{formatDate(rec.createdAt, locale)}</span>
                   {rec.durationSec != null && <span>{formatDuration(rec.durationSec, m)}</span>}
@@ -134,6 +165,7 @@ export function RecordingList({ initial }: { initial: RecordingSummary[] }) {
                         {rec.title}
                       </Link>
                       <div className="text-xs text-zinc-500">{rec.originalFilename}</div>
+                      {rec.tags.length > 0 && <TagChips tags={rec.tags} />}
                     </td>
                     <td className="whitespace-nowrap px-4 py-2.5 text-zinc-600 dark:text-zinc-400">{formatDate(rec.createdAt, locale)}</td>
                     <td className="whitespace-nowrap px-4 py-2.5">{formatDuration(rec.durationSec, m)}</td>

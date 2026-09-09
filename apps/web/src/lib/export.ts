@@ -44,7 +44,9 @@ export function exportTranscript(
         `- ${m.export.date}: ${new Date(rec.createdAt).toLocaleString(intlLocale(locale))}`,
         `- ${m.export.duration}: ${clock(rec.durationSec ?? 0)}`,
         `- ${m.export.speakers}: ${rec.speakers.map(name).join(", ") || "–"}`,
+        ...(rec.tags.length ? [`- ${m.tags.label}: ${rec.tags.join(", ")}`] : []),
         "",
+        ...(rec.notes ? [`## ${m.notes.label}`, "", rec.notes, ""] : []),
         "---",
         "",
       ].join("\n");

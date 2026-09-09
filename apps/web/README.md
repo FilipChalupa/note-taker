@@ -46,6 +46,15 @@ The DB schema is created automatically on startup (`src/lib/db/index.ts`, `CREAT
 | `WORKER_POLL_INTERVAL_MS` | `3000` | task status polling interval |
 | `DEFAULT_LANGUAGE` | `cs` | preselected language in the upload form |
 | `MAX_UPLOAD_MB` | `2048` | upload size limit |
+| `IMPORT_DIR` | – | watch folder; media files copied there are imported automatically (Docker: `./import`) |
+| `IMPORT_LANGUAGE` | `DEFAULT_LANGUAGE` | language for imported files |
+
+## Known voices
+
+Every diarized speaker comes with a voice embedding from pyannote. When you name a speaker, the embedding is stored
+under that name (up to 12 samples per voice, averaged). New recordings compare their speakers with the known voices
+(cosine similarity) and show "Looks like …" with one-click apply; ≥ 0.7 is a strong match, ≥ 0.45 a possible one.
+Voices are managed in Settings.
 
 ## Glossary
 
@@ -67,6 +76,9 @@ trimmed to Whisper's prompt budget (~900 characters) and sent as `initial_prompt
 | `POST` | `/api/recordings/:id/speakers/merge` | `{ from, into }` merge one speaker into another |
 | `POST` | `/api/recordings/:id/rediarize` | queue a speakers-only re-run (`{ minSpeakers?, maxSpeakers? }`) |
 | `GET` | `/api/search?q=` | full-text search (FTS5) with snippets |
+| `GET` | `/api/tags` | tags with usage counts; `GET /api/recordings?tag=` filters |
+| `GET` / `PATCH` / `DELETE` | `/api/voices[/:id]` | known voices learned from named speakers |
+| `POST` | `/api/recordings/:id/speakers/apply-suggestions` | name speakers after suggested known voices |
 | `GET` / `PUT` | `/api/settings` | global glossary |
 | `GET` | `/api/storage` | disk usage of `DATA_DIR` and free space |
 | `GET` | `/api/worker/health` | worker reachability + GPU info |

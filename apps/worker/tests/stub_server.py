@@ -62,6 +62,20 @@ SEGMENTS = [
 ]
 
 
+def _embedding(seed: int, dims: int = 32) -> list[float]:
+    """Deterministic unit vector per seed, so the same 'voice' recurs across stub recordings."""
+    import math
+    import random
+
+    rnd = random.Random(seed)
+    vec = [rnd.gauss(0, 1) for _ in range(dims)]
+    norm = math.sqrt(sum(v * v for v in vec))
+    return [round(v / norm, 5) for v in vec]
+
+
+EMBEDDINGS = {"SPEAKER_00": _embedding(1), "SPEAKER_01": _embedding(2)}
+
+
 def fake_run(self, audio_path, language, min_speakers, max_speakers, progress, initial_prompt=None, **kw):
     progress("TRANSCRIBING", 30, 0.3)
     time.sleep(PHASE)
@@ -69,7 +83,8 @@ def fake_run(self, audio_path, language, min_speakers, max_speakers, progress, i
     time.sleep(PHASE)
     return {"language": language or "cs", "diarized": True, "diarization_error": None,
             "speakers": ["SPEAKER_00", "SPEAKER_01"],
-            "segments": [{**s, "words": [dict(w) for w in s["words"]]} for s in SEGMENTS]}
+            "segments": [{**s, "words": [dict(w) for w in s["words"]]} for s in SEGMENTS],
+            "speaker_embeddings": {k: list(v) for k, v in EMBEDDINGS.items()}}
 
 
 def fake_diarize(self, audio_path, segments, min_speakers, max_speakers, progress):
@@ -80,7 +95,9 @@ def fake_diarize(self, audio_path, segments, min_speakers, max_speakers, progres
         seg = dict(seg)
         seg["speaker"] = f"SPEAKER_0{i % 3}"
         out.append(seg)
-    return {"diarized": True, "diarization_error": None, "speakers": sorted({s["speaker"] for s in out}), "segments": out}
+    speakers = sorted({s["speaker"] for s in out})
+    return {"diarized": True, "diarization_error": None, "speakers": speakers, "segments": out,
+            "speaker_embeddings": {sp: _embedding(i + 1) for i, sp in enumerate(speakers)}}
 
 
 P.Pipeline.run = fake_run

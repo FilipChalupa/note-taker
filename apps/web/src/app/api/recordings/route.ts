@@ -1,17 +1,17 @@
 import { NextResponse } from "next/server";
-import { config } from "@/lib/config";
+import { config, SUPPORTED_MEDIA } from "@/lib/config";
 import { createRecording, listRecordings } from "@/lib/recordings";
 import { ensurePollerStarted } from "@/lib/poller";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: Request) {
   ensurePollerStarted();
-  return NextResponse.json(listRecordings());
+  const tag = new URL(req.url).searchParams.get("tag");
+  return NextResponse.json(listRecordings(tag ? { tag } : undefined));
 }
 
-const ALLOWED_EXT = /\.(mp3|mpga|m4a|m4b|wav|aac|ogg|oga|opus|flac|wma|aiff?|mka|webm|mp4|m4v|mov|mkv|avi|mpe?g|ts|3gp|amr)$/i;
 
 export async function POST(req: Request) {
   ensurePollerStarted();
@@ -28,12 +28,13 @@ export async function POST(req: Request) {
   if (file.size > config.maxUploadBytes) {
     return NextResponse.json({ error: `FILE_TOO_LARGE:${Math.round(config.maxUploadBytes / 1024 / 1024)}` }, { status: 413 });
   }
-  if (!ALLOWED_EXT.test(file.name) && !/^(audio|video)\//.test(file.type)) {
+  if (!SUPPORTED_MEDIA.test(file.name) && !/^(audio|video)\//.test(file.type)) {
     return NextResponse.json({ error: "UNSUPPORTED_TYPE" }, { status: 415 });
   }
 
   const title = String(form.get("title") ?? "");
   const hints = String(form.get("hints") ?? "").slice(0, 2000);
+  const tags = String(form.get("tags") ?? "");
   const language = String(form.get("language") ?? config.defaultLanguage).toLowerCase() || config.defaultLanguage;
   const toInt = (v: FormDataEntryValue | null) => {
     const n = Number(v);
@@ -45,6 +46,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "SPEAKER_RANGE" }, { status: 400 });
   }
 
-  const rec = await createRecording({ title, language, hints, minSpeakers, maxSpeakers, file });
+  const rec = await createRecording({ title, language, hints, tags, minSpeakers, maxSpeakers, file });
   return NextResponse.json(rec, { status: 201 });
 }

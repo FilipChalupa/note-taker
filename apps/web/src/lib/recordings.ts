@@ -5,11 +5,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { and, desc, eq, inArray } from "drizzle-orm";
-import type { RecordingDetail, RecordingSummary, SearchHit, SegmentEdit, TranscriptSegment } from "@note-taker/shared";
+import type { RecordingDetail, RecordingSummary, SearchHit, SegmentEdit, TagCount, TranscriptSegment } from "@note-taker/shared";
 import { config, recordingDir } from "@/lib/config";
 import { db, rawDb, schema } from "@/lib/db";
 import { buildInitialPrompt } from "@/lib/settings";
 import { notifyAll, recordingNotification } from "@/lib/push";
+import { forgetSample, learnVoice, suggestSpeakers } from "@/lib/voices";
 import type { RecordingRow } from "@/lib/db/schema";
 import { workerClient, WorkerError } from "@/lib/worker-client";
 
@@ -31,6 +32,7 @@ function toSummary(r: Omit<RecordingRow, "segments">): RecordingSummary {
     speakerCount: r.speakerCount,
     error: r.error,
     warning: r.warning ?? null,
+    tags: r.tags ?? [],
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
   };
@@ -41,6 +43,9 @@ function toDetail(r: RecordingRow): RecordingDetail {
   return {
     ...toSummary(r),
     hints: r.hints ?? null,
+    notes: r.notes ?? null,
+    speakerSuggestions: r.speakerSuggestions ?? {},
+    speakersWithEmbedding: Object.keys(r.speakerEmbeddings ?? {}),
     speakerNames: r.speakerNames ?? {},
     speakers: r.speakers ?? [],
     segments: r.segments ?? [],
@@ -49,7 +54,7 @@ function toDetail(r: RecordingRow): RecordingDetail {
 }
 
 // ---------------------------------------------------------------- queries
-export function listRecordings(): RecordingSummary[] {
+export function listRecordings(filter?: { tag?: string }): RecordingSummary[] {
   const rows = db
     .select({
       id: recordings.id,
@@ -59,6 +64,8 @@ export function listRecordings(): RecordingSummary[] {
       audioPath: recordings.audioPath,
       language: recordings.language,
       hints: recordings.hints,
+      tags: recordings.tags,
+      notes: recordings.notes,
       minSpeakers: recordings.minSpeakers,
       maxSpeakers: recordings.maxSpeakers,
       status: recordings.status,
@@ -75,13 +82,40 @@ export function listRecordings(): RecordingSummary[] {
       speakerCount: recordings.speakerCount,
       speakers: recordings.speakers,
       speakerNames: recordings.speakerNames,
+      speakerEmbeddings: recordings.speakerEmbeddings,
+      speakerSuggestions: recordings.speakerSuggestions,
       createdAt: recordings.createdAt,
       updatedAt: recordings.updatedAt,
     })
     .from(recordings)
     .orderBy(desc(recordings.createdAt))
     .all();
-  return rows.map(toSummary);
+  const tag = filter?.tag?.trim().toLowerCase();
+  return rows.filter((r) => !tag || (r.tags ?? []).some((t) => t.toLowerCase() === tag)).map(toSummary);
+}
+
+/** Distinct tags with usage counts, most used first. */
+export function listTags(): TagCount[] {
+  const counts = new Map<string, number>();
+  for (const r of db.select({ tags: recordings.tags }).from(recordings).all()) {
+    for (const t of r.tags ?? []) counts.set(t, (counts.get(t) ?? 0) + 1);
+  }
+  return [...counts.entries()].map(([tag, count]) => ({ tag, count })).sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
+}
+
+/** "a, b; c" or "a\nb" -> ["a", "b", "c"], de-duplicated case-insensitively, max 20. */
+export function normalizeTags(input: string | string[] | null | undefined): string[] {
+  const raw = Array.isArray(input) ? input : (input ?? "").split(/[,;\n]+/);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const t of raw) {
+    const tag = String(t).trim().replace(/\s+/g, " ").slice(0, 40);
+    if (!tag || seen.has(tag.toLowerCase())) continue;
+    seen.add(tag.toLowerCase());
+    out.push(tag);
+    if (out.length >= 20) break;
+  }
+  return out;
 }
 
 export function getRecording(id: string): RecordingDetail | null {
@@ -98,6 +132,7 @@ export interface CreateRecordingInput {
   title: string;
   language: string;
   hints?: string;
+  tags?: string | string[];
   minSpeakers?: number;
   maxSpeakers?: number;
   file: File;
@@ -115,15 +150,50 @@ export async function createRecording(input: CreateRecordingInput): Promise<Reco
   const { Readable } = await import("node:stream");
   await pipeline(Readable.fromWeb(input.file.stream() as never), fs.createWriteStream(originalPath));
 
+  return insertRecording({ id, originalPath, originalFilename: input.file.name || `upload${ext}`, ...input });
+}
+
+/** Register an audio file that is already on disk (watch-folder import). The file is moved into DATA_DIR. */
+export function createRecordingFromPath(
+  sourcePath: string,
+  input: { title?: string; language: string; hints?: string; tags?: string | string[] },
+): RecordingDetail {
+  const id = randomUUID();
+  const dir = recordingDir(id);
+  fs.mkdirSync(dir, { recursive: true });
+  const ext = path.extname(sourcePath).toLowerCase() || ".bin";
+  const originalPath = path.join(dir, `original${ext}`);
+  try {
+    fs.renameSync(sourcePath, originalPath);
+  } catch {
+    fs.copyFileSync(sourcePath, originalPath);
+    fs.unlinkSync(sourcePath);
+  }
+  return insertRecording({ id, originalPath, originalFilename: path.basename(sourcePath), title: input.title ?? "", ...input });
+}
+
+function insertRecording(input: {
+  id: string;
+  originalPath: string;
+  originalFilename: string;
+  title: string;
+  language: string;
+  hints?: string;
+  tags?: string | string[];
+  minSpeakers?: number;
+  maxSpeakers?: number;
+}): RecordingDetail {
+  const ext = path.extname(input.originalFilename).toLowerCase();
   const ts = now();
   db.insert(recordings)
     .values({
-      id,
-      title: input.title.trim() || path.basename(input.file.name, ext) || "Untitled",
-      originalFilename: input.file.name || `upload${ext}`,
-      originalPath,
+      id: input.id,
+      title: input.title.trim() || path.basename(input.originalFilename, ext) || "Untitled",
+      originalFilename: input.originalFilename,
+      originalPath: input.originalPath,
       language: input.language,
       hints: input.hints?.trim() || null,
+      tags: normalizeTags(input.tags),
       minSpeakers: input.minSpeakers ?? null,
       maxSpeakers: input.maxSpeakers ?? null,
       status: "QUEUED",
@@ -134,30 +204,62 @@ export async function createRecording(input: CreateRecordingInput): Promise<Reco
     .run();
 
   // Hand off in the background so the upload response is immediate; the poller retries if needed.
-  void dispatch(id).catch((err) => console.error(`[recordings] dispatch failed for ${id}:`, (err as Error).message));
-  return getRecording(id)!;
+  void dispatch(input.id).catch((err) => console.error(`[recordings] dispatch failed for ${input.id}:`, (err as Error).message));
+  return getRecording(input.id)!;
 }
 
 // --------------------------------------------------------------- updates
 export function updateRecording(
   id: string,
-  patch: { title?: string; speakerNames?: Record<string, string>; hints?: string | null },
+  patch: { title?: string; speakerNames?: Record<string, string>; hints?: string | null; tags?: string | string[]; notes?: string | null },
 ): RecordingDetail | null {
   const row = getRecordingRow(id);
   if (!row) return null;
   const values: Partial<RecordingRow> = { updatedAt: now() };
   if (typeof patch.title === "string" && patch.title.trim()) values.title = patch.title.trim().slice(0, 200);
   if (patch.hints !== undefined) values.hints = patch.hints?.trim().slice(0, 2000) || null;
+  if (patch.tags !== undefined) values.tags = normalizeTags(patch.tags);
+  if (patch.notes !== undefined) values.notes = patch.notes?.trim().slice(0, 20_000) || null;
   if (patch.speakerNames && typeof patch.speakerNames === "object") {
     const cleaned: Record<string, string> = {};
     for (const [k, v] of Object.entries(patch.speakerNames)) {
       if (typeof v === "string" && v.trim()) cleaned[k] = v.trim().slice(0, 80);
     }
     values.speakerNames = cleaned;
+    // Learn / update known voices from the names the user gave
+    const embeddings = row.speakerEmbeddings ?? {};
+    const before = row.speakerNames ?? {};
+    for (const speaker of new Set([...Object.keys(before), ...Object.keys(cleaned)])) {
+      const vec = embeddings[speaker];
+      if (!vec) continue;
+      const name = cleaned[speaker];
+      if (name && name !== before[speaker]) {
+        forgetSample(id, speaker);
+        learnVoice(name, vec, id, speaker);
+      } else if (!name && before[speaker]) {
+        forgetSample(id, speaker);
+      }
+    }
+    // A named speaker no longer needs a suggestion
+    const suggestions = { ...(row.speakerSuggestions ?? {}) };
+    for (const speaker of Object.keys(cleaned)) delete suggestions[speaker];
+    values.speakerSuggestions = suggestions;
   }
   db.update(recordings).set(values).where(eq(recordings.id, id)).run();
-  if (values.title) indexRecording(id);
+  if (values.title !== undefined || values.tags !== undefined || values.notes !== undefined) indexRecording(id);
   return getRecording(id);
+}
+
+/** Apply known-voice suggestions as speaker names (all, or only the given speaker ids). */
+export function applySpeakerSuggestions(id: string, speakers?: string[]): RecordingDetail | null {
+  const row = getRecordingRow(id);
+  if (!row) return null;
+  const names = { ...(row.speakerNames ?? {}) };
+  for (const [speaker, s] of Object.entries(row.speakerSuggestions ?? {})) {
+    if (speakers && !speakers.includes(speaker)) continue;
+    names[speaker] = s.name;
+  }
+  return updateRecording(id, { speakerNames: names });
 }
 
 /** Apply text / speaker edits to individual segments. */
@@ -201,6 +303,12 @@ export function mergeSpeakers(id: string, from: string, into: string): Recording
   const names = { ...(row.speakerNames ?? {}) };
   if (!names[into] && names[from]) names[into] = names[from];
   delete names[from];
+  const embeddings = { ...(row.speakerEmbeddings ?? {}) };
+  delete embeddings[from];
+  const suggestions = { ...(row.speakerSuggestions ?? {}) };
+  delete suggestions[from];
+  forgetSample(id, from);
+  db.update(recordings).set({ speakerEmbeddings: embeddings, speakerSuggestions: suggestions }).where(eq(recordings.id, id)).run();
   saveSegments(id, row, segments, names);
   return getRecording(id);
 }
@@ -259,7 +367,7 @@ export function indexRecording(id: string): void {
   const sql = rawDb();
   sql.prepare("DELETE FROM recordings_fts WHERE recording_id = ?").run(id);
   if (!row || row.status !== "COMPLETED") return;
-  const body = (row.segments ?? []).map((s) => s.text).join(" ");
+  const body = [(row.tags ?? []).join(" "), row.notes ?? "", ...(row.segments ?? []).map((s) => s.text)].filter(Boolean).join(" ");
   sql.prepare("INSERT INTO recordings_fts (recording_id, title, body) VALUES (?, ?, ?)").run(id, row.title, body);
 }
 
@@ -291,6 +399,7 @@ export async function deleteRecording(id: string): Promise<boolean> {
   if (!row) return false;
   db.delete(recordings).where(eq(recordings.id, id)).run();
   rawDb().prepare("DELETE FROM recordings_fts WHERE recording_id = ?").run(id);
+  for (const speaker of Object.keys(row.speakerEmbeddings ?? {})) forgetSample(id, speaker);
   fs.rmSync(recordingDir(id), { recursive: true, force: true });
   if (row.workerTaskId) void workerClient.deleteTask(row.workerTaskId).catch(() => {});
   return true;
@@ -541,6 +650,8 @@ export async function syncRecording(id: string): Promise<void> {
       speakerCount: result.speakers.filter((s) => s !== "UNKNOWN").length,
       speakers: result.speakers,
       speakerNames: {},
+      speakerEmbeddings: result.speaker_embeddings ?? null,
+      speakerSuggestions: suggestSpeakers(result.speaker_embeddings),
       segments,
       audioPath: fs.existsSync(audioPath) ? audioPath : null,
       updatedAt: now(),

@@ -26,6 +26,7 @@ export function UploadForm({ defaultLanguage, maxUploadBytes }: { defaultLanguag
   const [title, setTitle] = useState("");
   const [language, setLanguage] = useState(defaultLanguage);
   const [hints, setHints] = useState("");
+  const [tags, setTags] = useState("");
   const [minSpeakers, setMinSpeakers] = useState("");
   const [maxSpeakers, setMaxSpeakers] = useState("");
   const [progress, setProgress] = useState<number | null>(null);
@@ -67,6 +68,7 @@ export function UploadForm({ defaultLanguage, maxUploadBytes }: { defaultLanguag
     form.append("title", title);
     form.append("language", language);
     if (hints.trim()) form.append("hints", hints.trim());
+    if (tags.trim()) form.append("tags", tags.trim());
     if (minSpeakers) form.append("minSpeakers", minSpeakers);
     if (maxSpeakers) form.append("maxSpeakers", maxSpeakers);
 
@@ -152,6 +154,11 @@ export function UploadForm({ defaultLanguage, maxUploadBytes }: { defaultLanguag
       <p className="-mt-3 text-xs text-zinc-500">
         {m.upload.speakersHint}
       </p>
+
+      <div>
+        <label className="mb-1 block text-sm font-medium">{m.upload.tags}</label>
+        <input className="input" value={tags} onChange={(e) => setTags(e.target.value)} placeholder={m.tags.placeholder} />
+      </div>
 
       <div>
         <label className="mb-1 block text-sm font-medium">{m.upload.hints}</label>

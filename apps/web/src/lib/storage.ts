@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { StorageInfo } from "@note-taker/shared";
 import { config } from "@/lib/config";
+import { importDirInfo } from "@/lib/importer";
 
 function sizeOf(p: string): number {
   try {
@@ -54,5 +55,6 @@ export function getStorageInfo(): StorageInfo {
     totalBytes: originalsBytes + audioBytes + databaseBytes,
     volumeFreeBytes,
     volumeTotalBytes,
+    importDir: importDirInfo(),
   };
 }

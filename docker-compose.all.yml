@@ -44,9 +44,11 @@ services:
       WORKER_API_URL: http://worker:8000
       WORKER_API_KEY: ${WORKER_API_KEY:-}
       DATA_DIR: /data
+      IMPORT_DIR: /data/import
       DEFAULT_LANGUAGE: ${DEFAULT_LANGUAGE:-cs}
     volumes:
       - web-data:/data
+      - ./import:/data/import
     ports:
       - "${WEB_PORT:-3000}:3000"
 

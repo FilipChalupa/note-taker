@@ -7,6 +7,16 @@ const WEB_PORT = 3124;
 const WORKER_PORT = 8765;
 const dataDir = process.env.E2E_DATA_DIR ?? fs.mkdtempSync(path.join(os.tmpdir(), "note-taker-e2e-"));
 const stubData = fs.mkdtempSync(path.join(os.tmpdir(), "note-taker-stub-"));
+// The config is evaluated again in every worker process, so derive paths once and pass them on via env.
+const importDir =
+  process.env.E2E_IMPORT_DIR ??
+  (() => {
+    const d = path.join(os.tmpdir(), "note-taker-e2e-import");
+    fs.rmSync(d, { recursive: true, force: true });
+    fs.mkdirSync(d, { recursive: true });
+    process.env.E2E_IMPORT_DIR = d;
+    return d;
+  })();
 const python = process.env.STUB_PYTHON ?? "python3";
 
 export default defineConfig({
@@ -22,7 +32,11 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   projects: [
-    { name: "desktop", use: { ...devices["Desktop Chrome"], viewport: { width: 1280, height: 900 } }, testIgnore: /mobile\.spec\.ts/ },
+    {
+      name: "desktop",
+      use: { ...devices["Desktop Chrome"], viewport: { width: 1280, height: 900 }, launchOptions: { args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"] } },
+      testIgnore: /mobile\.spec\.ts/,
+    },
     {
       name: "mobile",
       use: { ...devices["Pixel 7"], launchOptions: { args: ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"] } },
@@ -47,6 +61,7 @@ export default defineConfig({
         WORKER_API_URL: `http://127.0.0.1:${WORKER_PORT}`,
         WORKER_API_KEY: "",
         DATA_DIR: dataDir,
+        IMPORT_DIR: importDir,
         WORKER_POLL_INTERVAL_MS: "500",
       },
       timeout: 60_000,

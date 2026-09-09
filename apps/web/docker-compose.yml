@@ -15,5 +15,7 @@ services:
       - .env
     environment:
       DATA_DIR: /data
+      IMPORT_DIR: /data/import
     volumes:
       - ./data:/data
+      - ./import:/data/import

@@ -60,9 +60,21 @@ export function WorkerStatus() {
     );
   }
   const h = state.health!;
-  const gpuDetail = h.cuda.available
-    ? `${h.cuda.device_name} · ${h.cuda.vram_used_mb ?? "?"}/${h.cuda.vram_total_mb ?? "?"} MB VRAM`
+  const c = h.cuda;
+  const usedMb = c.memory_used_mb ?? c.vram_used_mb;
+  const gb = (mb: number | null) => (mb == null ? "?" : (mb / 1024).toFixed(1));
+  const gpuDetail = c.available
+    ? [
+        c.device_name,
+        c.utilization_pct != null ? `${m.gpu.util} ${c.utilization_pct} %` : null,
+        `${m.gpu.vram} ${gb(usedMb)}/${gb(c.vram_total_mb)} GB`,
+        c.temperature_c != null ? `${m.gpu.temp} ${c.temperature_c} °C` : null,
+        c.power_w != null ? `${m.gpu.power} ${c.power_w} W` : null,
+      ]
+        .filter(Boolean)
+        .join(" · ")
     : m.worker.cpu;
+  const hot = c.temperature_c != null && c.temperature_c >= 80;
   const queued = h.queue.pending + (h.queue.current_task_id ? 1 : 0);
   const diarizationLine = h.diarization_error
     ? fmt(m.worker.diarizationFailed, { detail: h.diarization_error })
@@ -75,10 +87,21 @@ export function WorkerStatus() {
         <span className={`h-2 w-2 rounded-full ${h.diarization_error ? "bg-amber-500" : "bg-emerald-500"}`} />
         <span className="hidden sm:inline">{m.worker.online}</span>
       </span>
-      {h.cuda.available ? (
-        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700 ring-1 ring-inset ring-emerald-300 dark:bg-emerald-950 dark:text-emerald-300 dark:ring-emerald-800">
+      {c.available ? (
+        <span
+          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-medium tabular-nums ring-1 ring-inset ${
+            hot
+              ? "bg-red-50 text-red-700 ring-red-300 dark:bg-red-950 dark:text-red-300 dark:ring-red-800"
+              : "bg-emerald-50 text-emerald-700 ring-emerald-300 dark:bg-emerald-950 dark:text-emerald-300 dark:ring-emerald-800"
+          }`}
+        >
           ⚡ {m.worker.gpu}
-          <span className="hidden font-normal sm:inline">· {shortGpuName(h.cuda.device_name)}</span>
+          {c.utilization_pct != null && <span className="font-normal">{c.utilization_pct} %</span>}
+          <span className="hidden font-normal md:inline">
+            · {gb(usedMb)}/{gb(c.vram_total_mb)} GB
+            {c.temperature_c != null && <> · {c.temperature_c} °C</>}
+          </span>
+          <span className="hidden font-normal xl:inline">· {shortGpuName(c.device_name)}</span>
         </span>
       ) : (
         <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 font-medium text-amber-700 ring-1 ring-inset ring-amber-300 dark:bg-amber-950 dark:text-amber-300 dark:ring-amber-800">

@@ -34,7 +34,10 @@ reachable again.
 - Queue page with real progress, ETA and processing speed; works offline from the worker (uploads wait, finished transcripts stay available).
 - Export to Markdown, plain text, SRT, VTT; download the normalized MP3.
 - Push notifications when a transcript is ready (works with the app closed; needs HTTPS), undo for edits, keyboard shortcuts (`?`), copy to clipboard.
-- Czech and English UI, phone-friendly layout, disk usage overview in Settings.
+- Tags and notes per recording, tag filter in the list; watch-folder import (`IMPORT_DIR`).
+- Known voices: naming a speaker once makes the app suggest the name in later recordings.
+- Record from the microphone, a browser tab / screen (online meetings) or both; in-progress recordings survive a crash.
+- Czech and English UI, phone-friendly layout, GPU utilization/VRAM/temperature in the header, disk usage in Settings.
 
 ## Tests
 
