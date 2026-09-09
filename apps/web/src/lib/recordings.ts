@@ -9,6 +9,7 @@ import type { RecordingDetail, RecordingSummary, SearchHit, SegmentEdit, Transcr
 import { config, recordingDir } from "@/lib/config";
 import { db, rawDb, schema } from "@/lib/db";
 import { buildInitialPrompt } from "@/lib/settings";
+import { notifyAll, recordingNotification } from "@/lib/push";
 import type { RecordingRow } from "@/lib/db/schema";
 import { workerClient, WorkerError } from "@/lib/worker-client";
 
@@ -201,6 +202,37 @@ export function mergeSpeakers(id: string, from: string, into: string): Recording
   if (!names[into] && names[from]) names[into] = names[from];
   delete names[from];
   saveSegments(id, row, segments, names);
+  return getRecording(id);
+}
+
+/** Replace the whole transcript state (undo). Segment shape is validated loosely. */
+export function replaceTranscript(
+  id: string,
+  segments: TranscriptSegment[],
+  speakers: string[],
+  speakerNames: Record<string, string>,
+): RecordingDetail | null {
+  const row = getRecordingRow(id);
+  if (!row) return null;
+  const clean: TranscriptSegment[] = segments
+    .filter((s) => s && typeof s.text === "string" && Number.isFinite(s.start) && Number.isFinite(s.end))
+    .slice(0, 50_000)
+    .map((s) => ({
+      start: s.start,
+      end: s.end,
+      speaker: /^[A-Za-z0-9_]{1,40}$/.test(s.speaker) ? s.speaker : "UNKNOWN",
+      text: s.text.slice(0, 5000),
+      words: Array.isArray(s.words) ? s.words.slice(0, 2000) : undefined,
+    }));
+  const used = new Set(clean.map((s) => s.speaker));
+  const ordered = [...speakers.filter((x) => typeof x === "string" && used.has(x)), ...[...used].filter((x) => !speakers.includes(x))];
+  const names: Record<string, string> = {};
+  for (const [k, v] of Object.entries(speakerNames ?? {})) if (typeof v === "string" && v.trim()) names[k] = v.trim().slice(0, 80);
+  db.update(recordings)
+    .set({ segments: clean, speakers: ordered, speakerCount: ordered.filter((x) => x !== "UNKNOWN").length, speakerNames: names, updatedAt: now() })
+    .where(eq(recordings.id, id))
+    .run();
+  indexRecording(id);
   return getRecording(id);
 }
 
@@ -447,6 +479,7 @@ export async function syncRecording(id: string): Promise<void> {
       })
       .where(eq(recordings.id, id))
       .run();
+    void notifyAll(recordingNotification({ id, title: row.title, status: "FAILED" })).catch(() => {});
     return;
   }
 
@@ -516,6 +549,9 @@ export async function syncRecording(id: string): Promise<void> {
     .run();
 
   indexRecording(id);
+  void notifyAll(
+    recordingNotification({ id, title: row.title, status: "COMPLETED", speakerCount: result.speakers.filter((s) => s !== "UNKNOWN").length }),
+  ).catch(() => {});
 
   // Free space on the worker; it keeps its own copy only as a TTL cache.
   void workerClient.deleteTask(row.workerTaskId).catch(() => {});

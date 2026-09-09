@@ -12,7 +12,7 @@ function Box() {
   return (
     <form
       role="search"
-      className="order-last w-full sm:order-none sm:w-64"
+      className="ml-auto min-w-0 flex-1 sm:w-64 sm:flex-none"
       onSubmit={(e) => {
         e.preventDefault();
         const query = q.trim();
@@ -21,7 +21,7 @@ function Box() {
     >
       <input
         type="search"
-        className="input py-1.5 text-sm"
+        className="input py-1 text-sm"
         value={q}
         onChange={(e) => setQ(e.target.value)}
         placeholder={m.nav.search}

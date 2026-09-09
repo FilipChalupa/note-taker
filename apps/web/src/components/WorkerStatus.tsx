@@ -54,8 +54,8 @@ export function WorkerStatus() {
 
   if (!state.reachable) {
     return (
-      <span className="flex items-center gap-1.5 text-xs text-red-600 dark:text-red-400" title={state.error}>
-        <span className="h-2 w-2 rounded-full bg-red-500" /> {m.worker.offline}
+      <span className="flex items-center gap-1.5 whitespace-nowrap text-xs text-red-600 dark:text-red-400" title={state.error}>
+        <span className="h-2 w-2 rounded-full bg-red-500" /> <span className="hidden sm:inline">{m.worker.offline}</span>
       </span>
     );
   }
@@ -70,10 +70,10 @@ export function WorkerStatus() {
   const tooltip = `${state.url}\n${gpuDetail}\n${m.worker.model}: ${h.model} (${h.compute_type})\n${diarizationLine}`;
 
   return (
-    <span className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400" title={tooltip}>
+    <span className="flex items-center gap-1.5 whitespace-nowrap text-xs text-zinc-600 dark:text-zinc-400 sm:gap-2" title={tooltip}>
       <span className="flex items-center gap-1.5">
         <span className={`h-2 w-2 rounded-full ${h.diarization_error ? "bg-amber-500" : "bg-emerald-500"}`} />
-        {m.worker.online}
+        <span className="hidden sm:inline">{m.worker.online}</span>
       </span>
       {h.cuda.available ? (
         <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700 ring-1 ring-inset ring-emerald-300 dark:bg-emerald-950 dark:text-emerald-300 dark:ring-emerald-800">
@@ -93,7 +93,8 @@ export function WorkerStatus() {
             : "rounded bg-zinc-100 px-1.5 py-0.5 text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
         }
       >
-        {queued > 0 ? fmt(m.worker.inQueue, { n: queued }) : m.worker.queueEmpty}
+        <span className="sm:hidden">⏳ {queued}</span>
+        <span className="hidden sm:inline">{queued > 0 ? fmt(m.worker.inQueue, { n: queued }) : m.worker.queueEmpty}</span>
       </Link>
     </span>
   );

@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start -p 3000",
     "typecheck": "tsc --noEmit",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "start:standalone": "node scripts/start-standalone.mjs",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@note-taker/shared": "workspace:*",
@@ -15,7 +17,8 @@
     "drizzle-orm": "^0.45.2",
     "next": "^16.3.4",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8"
+    "react-dom": "^19.2.8",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",
@@ -23,8 +26,10 @@
     "@types/node": "^22.18.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
+    "@types/web-push": "^3.6.4",
     "drizzle-kit": "^0.31.10",
     "tailwindcss": "^4.3.3",
-    "typescript": "^5.9.2"
+    "typescript": "^5.9.2",
+    "@playwright/test": "^1.58.0"
   }
 }

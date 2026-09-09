@@ -5,6 +5,7 @@ import type { AppSettings, StorageInfo } from "@note-taker/shared";
 import { fmt } from "@/lib/i18n";
 import { useI18n } from "@/lib/i18n/client";
 import { formatBytes } from "@/lib/format";
+import { NotificationsToggle } from "./NotificationsToggle";
 
 export function SettingsView({ initial, storage }: { initial: AppSettings; storage: StorageInfo }) {
   const { m } = useI18n();
@@ -36,6 +37,11 @@ export function SettingsView({ initial, storage }: { initial: AppSettings; stora
           </button>
           {state === "saved" && <span className="text-sm text-emerald-600">{m.settings.saved}</span>}
         </div>
+      </section>
+
+      <section className="card p-5">
+        <h2 className="mb-3 font-semibold">{m.settings.notifications}</h2>
+        <NotificationsToggle full />
       </section>
 
       <section className="card p-5">

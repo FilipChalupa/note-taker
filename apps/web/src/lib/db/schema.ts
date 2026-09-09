@@ -44,5 +44,12 @@ export const settings = sqliteTable("settings", {
   updatedAt: text("updated_at").notNull(),
 });
 
+export const pushSubscriptions = sqliteTable("push_subscriptions", {
+  endpoint: text("endpoint").primaryKey(),
+  subscription: text("subscription", { mode: "json" }).$type<{ endpoint: string; keys: { p256dh: string; auth: string } }>().notNull(),
+  locale: text("locale").notNull().default("en"),
+  createdAt: text("created_at").notNull(),
+});
+
 export type RecordingRow = typeof recordings.$inferSelect;
 export type NewRecordingRow = typeof recordings.$inferInsert;

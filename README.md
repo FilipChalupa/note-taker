@@ -33,7 +33,17 @@ reachable again.
 - Full-text search across all transcripts (diacritics-insensitive), with matches highlighted in the transcript.
 - Queue page with real progress, ETA and processing speed; works offline from the worker (uploads wait, finished transcripts stay available).
 - Export to Markdown, plain text, SRT, VTT; download the normalized MP3.
-- Czech and English UI; disk usage overview in Settings.
+- Push notifications when a transcript is ready (works with the app closed; needs HTTPS), undo for edits, keyboard shortcuts (`?`), copy to clipboard.
+- Czech and English UI, phone-friendly layout, disk usage overview in Settings.
+
+## Tests
+
+```bash
+pnpm test:worker     # pytest: queue, ETA stats, hallucination filter, API (fake ML pipeline, real ffmpeg)
+pnpm build:web && pnpm test:e2e   # Playwright against the production build + a stub worker
+```
+
+GitHub Actions runs both suites and builds the web Docker image on every push (`.github/workflows/ci.yml`).
 
 ## Screenshots
 

@@ -35,3 +35,8 @@ apps/worker/models/
 # Hugging Face cache if it ever lands inside the repo
 apps/worker/hub/
 apps/worker/xet/
+
+# Tests
+apps/web/playwright-report/
+apps/web/test-results/
+.pytest_cache/

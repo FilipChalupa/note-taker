@@ -66,7 +66,52 @@ export function RecordingList({ initial }: { initial: RecordingSummary[] }) {
           .
         </div>
       ) : (
-        <div className="card overflow-x-auto">
+        <>
+        <div className="space-y-2 md:hidden">
+          {items.map((rec) => {
+            const phase = phaseLabel(rec.phase, m);
+            const err = errorLabel(rec.error, m);
+            return (
+              <div key={rec.id} className="card p-3">
+                <Link href={`/recordings/${rec.id}`} className="block font-medium hover:underline">
+                  {rec.title}
+                </Link>
+                <div className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-zinc-500">
+                  <span>{formatDate(rec.createdAt, locale)}</span>
+                  {rec.durationSec != null && <span>{formatDuration(rec.durationSec, m)}</span>}
+                  {rec.speakerCount != null && <span>{rec.speakerCount} {m.list.speakers.toLowerCase()}</span>}
+                </div>
+                <div className="mt-2 flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <StatusBadge status={rec.status} title={phase} progress={rec.progress} />
+                    {(rec.status === "PROCESSING" || rec.status === "QUEUED") && phase && <div className="mt-1 text-xs text-zinc-500">{phase}</div>}
+                    {rec.status === "FAILED" && err && (
+                      <div className="mt-1 truncate text-xs text-red-600" title={err}>
+                        {err}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex shrink-0 gap-1">
+                    {rec.status === "FAILED" && (
+                      <button className="btn px-2 py-1 text-xs" onClick={() => retry(rec)}>
+                        {m.list.retry}
+                      </button>
+                    )}
+                    <button className="btn btn-danger px-2 py-1 text-xs" onClick={() => remove(rec)}>
+                      {m.list.delete}
+                    </button>
+                  </div>
+                </div>
+                {rec.status === "PROCESSING" && (
+                  <div className="mt-2 h-1 overflow-hidden rounded bg-zinc-200 dark:bg-zinc-700">
+                    <div className="h-full bg-blue-500 transition-all" style={{ width: `${rec.progress}%` }} />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <div className="card hidden overflow-x-auto md:block">
           <table className="w-full text-sm">
             <thead className="bg-zinc-50 text-left text-xs uppercase tracking-wide text-zinc-500 dark:bg-zinc-800/60">
               <tr>
@@ -127,6 +172,7 @@ export function RecordingList({ initial }: { initial: RecordingSummary[] }) {
             </tbody>
           </table>
         </div>
+        </>
       )}
     </div>
   );

@@ -7,6 +7,8 @@
     "build:web": "pnpm --filter @note-taker/web build",
     "dev:worker": "bash apps/worker/run.sh",
     "typecheck": "pnpm -r --if-present typecheck",
-    "lint": "pnpm -r --if-present lint"
+    "lint": "pnpm -r --if-present lint",
+    "test:worker": "cd apps/worker && python3 -m pytest",
+    "test:e2e": "pnpm --filter @note-taker/web test:e2e"
   }
 }

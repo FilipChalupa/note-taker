@@ -25,13 +25,27 @@ export function PlayerControls({ playing, time, duration, rate, onToggle, onSkip
         <button className="btn" onClick={() => onSkip(-SKIP_SEC)} title={m.detail.back5}>
           ⏪ 5 s
         </button>
-        <button className={`btn btn-primary justify-center ${compact ? "w-20" : "w-24"}`} onClick={onToggle} title={m.detail.playPauseHint}>
+        <button className={`btn btn-primary justify-center whitespace-nowrap ${compact ? "w-20" : "w-24"}`} onClick={onToggle} title={m.detail.playPauseHint}>
           {playing ? m.detail.pause : m.detail.play}
         </button>
         <button className="btn" onClick={() => onSkip(SKIP_SEC)} title={m.detail.fwd5}>
           5 s ⏩
         </button>
-        <div className="ml-1 flex items-center gap-0.5 rounded-md border border-zinc-300 p-0.5 dark:border-zinc-700" title={m.detail.speed}>
+        {compact && (
+          <select
+            className="rounded-md border border-zinc-300 bg-white px-1 py-1.5 text-xs dark:border-zinc-700 dark:bg-zinc-900 sm:hidden"
+            value={rate}
+            onChange={(e) => onRate(Number(e.target.value))}
+            aria-label={m.detail.speed}
+          >
+            {RATES.map((r) => (
+              <option key={r} value={r}>
+                {r}×
+              </option>
+            ))}
+          </select>
+        )}
+        <div className={`ml-1 items-center gap-0.5 rounded-md border border-zinc-300 p-0.5 dark:border-zinc-700 ${compact ? "hidden sm:flex" : "flex"}`} title={m.detail.speed}>
           {RATES.map((r) => (
             <button
               key={r}
@@ -50,7 +64,7 @@ export function PlayerControls({ playing, time, duration, rate, onToggle, onSkip
           </span>
         )}
       </div>
-      <div className={compact ? "flex min-w-[220px] flex-1 items-center gap-2" : "mt-3"}>
+      <div className={compact ? "flex min-w-0 flex-1 basis-full items-center gap-2 sm:basis-[220px]" : "mt-3"}>
         <input
           type="range"
           min={0}

@@ -8,6 +8,7 @@ import { PlayerProvider } from "@/components/player/PlayerProvider";
 import { GlobalPlayerBar } from "@/components/player/GlobalPlayerBar";
 import { DropProvider } from "@/components/DropProvider";
 import { SearchBox } from "@/components/SearchBox";
+import { NotificationsToggle } from "@/components/NotificationsToggle";
 import { getMessages } from "@/lib/i18n/server";
 
 export const viewport: Viewport = {
@@ -43,32 +44,37 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <PlayerProvider>
           <DropProvider>
           <header className="border-b border-zinc-200 bg-white/80 backdrop-blur dark:border-zinc-800 dark:bg-zinc-900/80">
-            <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-3">
-              <nav className="flex items-center gap-4">
-                <Link href="/" className="text-lg font-semibold tracking-tight">
+            <div className="mx-auto max-w-6xl px-3 py-2 sm:px-4">
+              <div className="flex items-center justify-between gap-2">
+                <Link href="/" className="whitespace-nowrap text-base font-semibold tracking-tight sm:text-lg">
                   🎙️ {m.appName}
                 </Link>
-                <Link href="/" className="text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100">
-                  {m.nav.recordings}
-                </Link>
-                <Link href="/upload" className="text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100">
-                  {m.nav.upload}
-                </Link>
-                <Link href="/record" className="text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100">
-                  {m.nav.record}
-                </Link>
-                <Link href="/settings" className="text-sm text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100">
-                  {m.nav.settings}
-                </Link>
-              </nav>
-              <SearchBox />
-              <div className="flex items-center gap-3">
-                <WorkerStatus />
-                <LanguageSwitcher />
+                <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+                  <WorkerStatus />
+                  <NotificationsToggle />
+                  <LanguageSwitcher />
+                </div>
+              </div>
+              <div className="mt-1.5 flex items-center gap-3">
+                <nav className="flex shrink-0 items-center gap-3 overflow-x-auto whitespace-nowrap text-sm sm:gap-4">
+                  <Link href="/" className="text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100">
+                    {m.nav.recordings}
+                  </Link>
+                  <Link href="/upload" className="text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100">
+                    {m.nav.upload}
+                  </Link>
+                  <Link href="/record" className="text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100">
+                    {m.nav.record}
+                  </Link>
+                  <Link href="/settings" className="text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100">
+                    {m.nav.settings}
+                  </Link>
+                </nav>
+                <SearchBox />
               </div>
             </div>
           </header>
-          <main className="mx-auto max-w-6xl px-4 py-6 pb-28">{children}</main>
+          <main className="mx-auto max-w-6xl px-3 py-4 pb-40 sm:px-4 sm:py-6 sm:pb-28">{children}</main>
           <GlobalPlayerBar />
           </DropProvider>
           </PlayerProvider>

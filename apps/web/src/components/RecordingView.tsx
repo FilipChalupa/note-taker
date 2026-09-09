@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ExportFormat, RecordingDetail, SegmentEdit } from "@note-taker/shared";
 import { StatusBadge } from "./StatusBadge";
+import { Dialog } from "./Dialog";
 import { requestWorkerRefresh } from "./WorkerStatus";
 import { PlayerControls } from "./player/PlayerControls";
 import { usePlayer } from "./player/PlayerProvider";
@@ -14,29 +15,30 @@ import { useI18n } from "@/lib/i18n/client";
 
 const POLL_MS = 2500;
 
-/** Wrap search matches in <mark>; the match at global index `cursor` gets the ref for scrolling. */
+/** Wrap search matches in <mark>; `counter.n` is the running global match index, the one equal to
+ *  `cursor` gets the ref for scrolling. */
 function highlightMatches(
   text: string,
   matcher: RegExp,
-  offset: number,
+  counter: { n: number },
   cursor: number,
   cursorRef: React.RefObject<HTMLSpanElement | null>,
 ): React.ReactNode {
   const parts = text.split(matcher);
-  let n = offset;
-  return parts.map((part, i) =>
-    i % 2 === 1 ? (
+  if (parts.length === 1) return text;
+  return parts.map((part, i) => {
+    if (i % 2 === 0) return part;
+    const idx = counter.n++;
+    return (
       <mark
         key={i}
-        ref={n++ === cursor ? (cursorRef as React.RefObject<HTMLElement>) : undefined}
-        className={`rounded px-0.5 ${n - 1 === cursor ? "bg-orange-300 dark:bg-orange-600" : "bg-yellow-200 dark:bg-yellow-700/60"}`}
+        ref={idx === cursor ? (cursorRef as React.RefObject<HTMLElement>) : undefined}
+        className={`rounded px-0.5 ${idx === cursor ? "bg-orange-300 dark:bg-orange-600" : "bg-yellow-200 dark:bg-yellow-700/60"}`}
       >
         {part}
       </mark>
-    ) : (
-      part
-    ),
-  );
+    );
+  });
 }
 const EXPORTS: ExportFormat[] = ["md", "txt", "srt", "vtt"];
 
@@ -173,12 +175,30 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
   }, [matchCursor, matchCount]);
 
   const activeRef = useRef<HTMLSpanElement>(null);
+
   useEffect(() => {
     if (!follow || !playing || !activeRef.current) return;
     activeRef.current.scrollIntoView({ block: "center", behavior: "smooth" });
   }, [activeIndex, follow, playing]);
 
   // ---------------------------------------------------------------- editing
+  type Snapshot = Pick<RecordingDetail, "segments" | "speakers" | "speakerNames">;
+  const [history, setHistory] = useState<Snapshot[]>([]);
+  const pushHistory = (r: RecordingDetail) =>
+    setHistory((h) => [...h.slice(-49), { segments: r.segments, speakers: r.speakers, speakerNames: r.speakerNames }]);
+  type DialogState =
+    | null
+    | { kind: "rediarize" }
+    | { kind: "confirm"; title: string; text: string; danger?: boolean; onConfirm: () => void }
+    | { kind: "shortcuts" };
+  const [dialog, setDialog] = useState<DialogState>(null);
+  const [rediarizeMode, setRediarizeMode] = useState<"auto" | "exact" | "range">("auto");
+  const [rediarizeCount, setRediarizeCount] = useState("");
+  const [rediarizeMin, setRediarizeMin] = useState("");
+  const [rediarizeMax, setRediarizeMax] = useState("");
+  const [copied, setCopied] = useState(false);
+  const [copyOpen, setCopyOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editDraft, setEditDraft] = useState("");
   const [hintsDraft, setHintsDraft] = useState(rec.hints ?? "");
@@ -204,6 +224,7 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
   };
 
   const applyEdits = async (edits: SegmentEdit[]) => {
+    pushHistory(rec);
     setSaving(true);
     try {
       const r = await fetch(`/api/recordings/${rec.id}/segments`, {
@@ -217,9 +238,18 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
     }
   };
 
-  const mergeSpeaker = async (from: string, into: string) => {
+  const mergeSpeaker = (from: string, into: string) => {
     if (!into || from === into) return;
-    if (!confirm(fmt(m.detail.confirmMerge, { from: label(from), into: label(into) }))) return;
+    setDialog({
+      kind: "confirm",
+      title: m.detail.mergeTitle,
+      text: fmt(m.detail.confirmMerge, { from: label(from), into: label(into) }),
+      onConfirm: () => void doMergeSpeaker(from, into),
+    });
+  };
+
+  const doMergeSpeaker = async (from: string, into: string) => {
+    pushHistory(rec);
     setSaving(true);
     try {
       const r = await fetch(`/api/recordings/${rec.id}/speakers/merge`, {
@@ -245,6 +275,39 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
     await applyEdits(turnSegments.map((index) => ({ index, speaker })));
   };
 
+  const undo = async () => {
+    const prev = history[history.length - 1];
+    if (!prev) return;
+    setHistory((h) => h.slice(0, -1));
+    setSaving(true);
+    try {
+      const r = await fetch(`/api/recordings/${rec.id}/transcript`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(prev),
+      });
+      if (r.ok) {
+        const next = (await r.json()) as RecordingDetail;
+        setRec(next);
+        setNames(next.speakerNames);
+      }
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const copyTranscript = async (format: "txt" | "md") => {
+    setCopyOpen(false);
+    try {
+      const text = await (await fetch(`/api/recordings/${rec.id}/export?format=${format}`)).text();
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch (err) {
+      setActionError((err as Error).message);
+    }
+  };
+
   const startEdit = (index: number) => {
     setEditingIndex(index);
     setEditDraft(rec.segments[index]?.text ?? "");
@@ -267,11 +330,21 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
   };
 
   const [actionError, setActionError] = useState<string | null>(null);
-  const rediarize = async () => {
-    const answer = prompt(m.detail.rediarizePrompt, rec.speakerCount && rec.speakerCount > 1 ? String(rec.speakerCount) : "");
-    if (answer === null) return;
-    const n = Number(answer.trim());
-    const body = answer.trim() && Number.isInteger(n) && n > 0 ? { minSpeakers: n, maxSpeakers: n } : {};
+  const rediarize = () => {
+    setRediarizeCount(rec.speakerCount && rec.speakerCount > 1 ? String(rec.speakerCount) : "");
+    setRediarizeMode("auto");
+    setDialog({ kind: "rediarize" });
+  };
+
+  const submitRediarize = async () => {
+    setDialog(null);
+    const int = (v: string) => (Number.isInteger(Number(v)) && Number(v) > 0 ? Number(v) : undefined);
+    const body =
+      rediarizeMode === "exact"
+        ? { minSpeakers: int(rediarizeCount), maxSpeakers: int(rediarizeCount) }
+        : rediarizeMode === "range"
+          ? { minSpeakers: int(rediarizeMin), maxSpeakers: int(rediarizeMax) }
+          : {};
     setActionError(null);
     const r = await fetch(`/api/recordings/${rec.id}/rediarize`, {
       method: "POST",
@@ -287,14 +360,25 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
     }
   };
 
-  const remove = async () => {
-    if (!confirm(fmt(m.list.confirmDelete, { title: rec.title }))) return;
-    const r = await fetch(`/api/recordings/${rec.id}`, { method: "DELETE" });
-    if (r.ok) router.push("/");
+  const remove = () =>
+    setDialog({
+      kind: "confirm",
+      title: m.detail.deleteTitle,
+      text: fmt(m.list.confirmDelete, { title: rec.title }),
+      danger: true,
+      onConfirm: () => void (async () => {
+        const r = await fetch(`/api/recordings/${rec.id}`, { method: "DELETE" });
+        if (r.ok) router.push("/");
+      })(),
+    });
+
+  const retry = () => {
+    if (rec.status === "COMPLETED") {
+      setDialog({ kind: "confirm", title: m.detail.reprocessTitle, text: fmt(m.detail.confirmReprocess, { title: rec.title }), onConfirm: () => void doRetry() });
+    } else void doRetry();
   };
 
-  const retry = async () => {
-    if (rec.status === "COMPLETED" && !confirm(fmt(m.detail.confirmReprocess, { title: rec.title }))) return;
+  const doRetry = async () => {
     const r = await fetch(`/api/recordings/${rec.id}/retry`, { method: "POST" });
     if (r.ok) {
       setRec((await r.json()) as RecordingDetail);
@@ -306,6 +390,43 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
   const langLabel = (m.languages as Record<string, string>)[rec.language] ?? rec.language;
   const phase = phaseLabel(rec.phase, m);
   const err = errorLabel(rec.error, m);
+
+  const undoRef = useRef(undo);
+  undoRef.current = undo;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && (/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) || target.isContentEditable)) return;
+      if (dialog) return;
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        void undoRef.current();
+        return;
+      }
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const key = e.key;
+      if (key === "j" || key === "k") {
+        e.preventDefault();
+        const dir = key === "j" ? 1 : -1;
+        const cur = turns.findIndex((t) => t.segments.some((sg) => sg.index === activeIndex));
+        const base = cur >= 0 ? cur : dir > 0 ? -1 : turns.findIndex((t) => t.start > time) - 0;
+        const next = turns[Math.max(0, Math.min(turns.length - 1, base + dir))];
+        if (next) seekTo(next.start, true);
+      } else if ((key === "n" || key === "p") && matchCount > 0) {
+        e.preventDefault();
+        setMatchCursor((c) => (c + (key === "n" ? 1 : matchCount - 1)) % matchCount);
+      } else if (key === "e" && activeIndex >= 0 && rec.status === "COMPLETED") {
+        e.preventDefault();
+        startEdit(activeIndex);
+      } else if (key === "?") {
+        e.preventDefault();
+        setDialog({ kind: "shortcuts" });
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [turns, activeIndex, time, matchCount, dialog, rec.status, seekTo]);
 
   // ------------------------------------------------------------------ render
   return (
@@ -355,23 +476,46 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {rec.status === "COMPLETED" && (
-            <div className="flex items-center gap-1">
-              <span className="mr-1 text-xs text-zinc-500">{m.detail.export}</span>
-              {EXPORTS.map((f) => (
-                <a key={f} className="btn" href={`/api/recordings/${rec.id}/export?format=${f}`}>
-                  {m.detail.exportFormats[f]}
-                </a>
-              ))}
+            <div className="relative">
+              <button className="btn" onClick={() => setExportOpen((o) => !o)}>
+                ⬇ {m.detail.export.replace(/:$/, "")} ▾
+              </button>
+              {exportOpen && (
+                <div className="card absolute right-0 z-20 mt-1 flex min-w-[11rem] flex-col p-1 text-sm">
+                  {EXPORTS.map((f) => (
+                    <a key={f} className="rounded px-3 py-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-800" href={`/api/recordings/${rec.id}/export?format=${f}`} onClick={() => setExportOpen(false)}>
+                      {m.detail.exportFormats[f]}
+                    </a>
+                  ))}
+                  {rec.audioUrl && (
+                    <a className="rounded border-t border-zinc-200 px-3 py-1.5 hover:bg-zinc-100 dark:border-zinc-800 dark:hover:bg-zinc-800" href={`${rec.audioUrl}?download=1`} download onClick={() => setExportOpen(false)}>
+                      {m.detail.downloadAudio}
+                    </a>
+                  )}
+                </div>
+              )}
             </div>
           )}
-          {rec.audioUrl && (
-            <a className="btn" href={`${rec.audioUrl}?download=1`} download title={m.detail.downloadAudioHint}>
-              ⬇ {m.detail.downloadAudio}
-            </a>
+          {rec.status === "COMPLETED" && rec.segments.length > 0 && (
+            <div className="relative">
+              <button className="btn" onClick={() => setCopyOpen((o) => !o)} title={m.detail.copy}>
+                📋 {copied ? m.detail.copied : m.detail.copy} ▾
+              </button>
+              {copyOpen && (
+                <div className="card absolute right-0 z-20 mt-1 flex min-w-[10rem] flex-col p-1 text-sm">
+                  <button className="rounded px-3 py-1.5 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800" onClick={() => copyTranscript("txt")}>
+                    {m.detail.copyText}
+                  </button>
+                  <button className="rounded px-3 py-1.5 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800" onClick={() => copyTranscript("md")}>
+                    {m.detail.copyMarkdown}
+                  </button>
+                </div>
+              )}
+            </div>
           )}
-          {rec.status === "FAILED" && (
-            <button className="btn" onClick={retry}>
-              {m.detail.retry}
+          {rec.status === "COMPLETED" && history.length > 0 && (
+            <button className="btn" onClick={undo} title={m.detail.undoHint}>
+              ↶ {m.detail.undo}
             </button>
           )}
           {rec.status === "COMPLETED" && rec.audioUrl && rec.segments.length > 0 && (
@@ -522,6 +666,7 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
                             );
                           }
                           const words = active && seg.words?.length ? seg.words : null;
+                          const counter = { n: matchOffsets.get(seg.index) ?? 0 };
                           return (
                             <span
                               key={seg.index}
@@ -547,11 +692,11 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
                                       }}
                                       className={wi === activeWord ? "rounded bg-yellow-300 dark:bg-yellow-600/80" : undefined}
                                     >
-                                      {w.word}{" "}
+                                      {matcher ? highlightMatches(w.word, matcher, counter, matchCursor, matchRef) : w.word}{" "}
                                     </span>
                                   ))
                                 : matcher
-                                  ? highlightMatches(seg.text, matcher, matchOffsets.get(seg.index) ?? 0, matchCursor, matchRef)
+                                  ? highlightMatches(seg.text, matcher, counter, matchCursor, matchRef)
                                   : seg.text}
                               {!words && " "}
                             </span>
@@ -628,6 +773,72 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
           </aside>
         </div>
       )}
+
+      <Dialog
+        open={dialog?.kind === "rediarize"}
+        title={m.detail.rediarizeTitle}
+        onClose={() => setDialog(null)}
+        actions={
+          <>
+            <button className="btn" onClick={() => setDialog(null)}>
+              {m.detail.cancel}
+            </button>
+            <button className="btn btn-primary" onClick={submitRediarize}>
+              {m.detail.start}
+            </button>
+          </>
+        }
+      >
+        <p className="text-zinc-600 dark:text-zinc-300">{m.detail.rediarizeText}</p>
+        <label className="flex items-center gap-2">
+          <input type="radio" name="rmode" checked={rediarizeMode === "auto"} onChange={() => setRediarizeMode("auto")} /> {m.detail.rediarizeAuto}
+        </label>
+        <label className="flex items-center gap-2">
+          <input type="radio" name="rmode" checked={rediarizeMode === "exact"} onChange={() => setRediarizeMode("exact")} /> {m.detail.rediarizeExact}
+          <input className="input w-20 py-1" type="number" min={1} max={30} value={rediarizeCount} onFocus={() => setRediarizeMode("exact")} onChange={(e) => setRediarizeCount(e.target.value)} />
+        </label>
+        <label className="flex items-center gap-2">
+          <input type="radio" name="rmode" checked={rediarizeMode === "range"} onChange={() => setRediarizeMode("range")} /> {m.detail.rediarizeRange}
+          <input className="input w-20 py-1" type="number" min={1} max={30} value={rediarizeMin} onFocus={() => setRediarizeMode("range")} onChange={(e) => setRediarizeMin(e.target.value)} />
+          –
+          <input className="input w-20 py-1" type="number" min={1} max={30} value={rediarizeMax} onFocus={() => setRediarizeMode("range")} onChange={(e) => setRediarizeMax(e.target.value)} />
+        </label>
+      </Dialog>
+
+      <Dialog
+        open={dialog?.kind === "confirm"}
+        title={dialog?.kind === "confirm" ? dialog.title : ""}
+        onClose={() => setDialog(null)}
+        actions={
+          <>
+            <button className="btn" onClick={() => setDialog(null)}>
+              {m.detail.cancel}
+            </button>
+            <button
+              className={`btn ${dialog?.kind === "confirm" && dialog.danger ? "btn-danger" : "btn-primary"}`}
+              onClick={() => {
+                const d = dialog;
+                setDialog(null);
+                if (d?.kind === "confirm") d.onConfirm();
+              }}
+            >
+              {m.detail.confirm}
+            </button>
+          </>
+        }
+      >
+        <p>{dialog?.kind === "confirm" ? dialog.text : ""}</p>
+      </Dialog>
+
+      <Dialog open={dialog?.kind === "shortcuts"} title={m.detail.shortcuts} onClose={() => setDialog(null)}>
+        <ul className="space-y-1">
+          {Object.values(m.detail.shortcutList).map((line) => (
+            <li key={line} className="text-zinc-700 dark:text-zinc-300">
+              {line}
+            </li>
+          ))}
+        </ul>
+      </Dialog>
     </div>
   );
 }

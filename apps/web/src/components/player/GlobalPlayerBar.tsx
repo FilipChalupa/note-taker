@@ -16,14 +16,19 @@ export function GlobalPlayerBar() {
 
   return (
     <div className="fixed inset-x-0 bottom-0 z-20 border-t border-zinc-200 bg-white/95 backdrop-blur dark:border-zinc-800 dark:bg-zinc-900/95">
-      <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-3 px-4 py-2">
-        <div className="min-w-0 flex-1 basis-48">
-          <div className="text-[11px] uppercase tracking-wide text-zinc-500">{m.player.nowPlaying}</div>
-          <Link href={`/recordings/${p.track.id}`} className="block truncate text-sm font-medium hover:underline">
-            {p.track.title}
-          </Link>
+      <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-1.5 sm:px-4 sm:py-2">
+        <div className="flex min-w-0 flex-1 basis-40 items-center gap-2">
+          <div className="min-w-0 flex-1">
+            <div className="hidden text-[11px] uppercase tracking-wide text-zinc-500 sm:block">{m.player.nowPlaying}</div>
+            <Link href={`/recordings/${p.track.id}`} className="block truncate text-sm font-medium hover:underline">
+              {p.track.title}
+            </Link>
+          </div>
+          <button className="btn px-2 py-1 sm:hidden" onClick={p.stop} title={m.player.close} aria-label={m.player.close}>
+            ✕
+          </button>
         </div>
-        <div className="flex-[3] basis-[420px]">
+        <div className="basis-full sm:flex-[3] sm:basis-[420px]">
           <PlayerControls
             compact
             playing={p.playing}
@@ -36,9 +41,11 @@ export function GlobalPlayerBar() {
             onRate={p.setRate}
           />
         </div>
-        <button className="btn" onClick={p.stop} title={m.player.close} aria-label={m.player.close}>
-          ✕
-        </button>
+        <span className="hidden sm:block">
+          <button className="btn" onClick={p.stop} title={m.player.close} aria-label={m.player.close}>
+            ✕
+          </button>
+        </span>
       </div>
     </div>
   );

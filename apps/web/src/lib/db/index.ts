@@ -43,6 +43,12 @@ CREATE TABLE IF NOT EXISTS settings (
   value TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  endpoint TEXT PRIMARY KEY,
+  subscription TEXT NOT NULL,
+  locale TEXT NOT NULL DEFAULT 'en',
+  created_at TEXT NOT NULL
+);
 `;
 
 // Full-text index over transcripts (title + all segment text). Diacritics are folded so "priorita"
