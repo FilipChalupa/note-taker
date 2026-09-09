@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ExportFormat, RecordingDetail } from "@note-taker/shared";
+import type { ExportFormat, RecordingDetail, SegmentEdit } from "@note-taker/shared";
 import { StatusBadge } from "./StatusBadge";
 import { requestWorkerRefresh } from "./WorkerStatus";
 import { PlayerControls } from "./player/PlayerControls";
@@ -13,6 +13,31 @@ import { fmt } from "@/lib/i18n";
 import { useI18n } from "@/lib/i18n/client";
 
 const POLL_MS = 2500;
+
+/** Wrap search matches in <mark>; the match at global index `cursor` gets the ref for scrolling. */
+function highlightMatches(
+  text: string,
+  matcher: RegExp,
+  offset: number,
+  cursor: number,
+  cursorRef: React.RefObject<HTMLSpanElement | null>,
+): React.ReactNode {
+  const parts = text.split(matcher);
+  let n = offset;
+  return parts.map((part, i) =>
+    i % 2 === 1 ? (
+      <mark
+        key={i}
+        ref={n++ === cursor ? (cursorRef as React.RefObject<HTMLElement>) : undefined}
+        className={`rounded px-0.5 ${n - 1 === cursor ? "bg-orange-300 dark:bg-orange-600" : "bg-yellow-200 dark:bg-yellow-700/60"}`}
+      >
+        {part}
+      </mark>
+    ) : (
+      part
+    ),
+  );
+}
 const EXPORTS: ExportFormat[] = ["md", "txt", "srt", "vtt"];
 
 export function RecordingView({ initial }: { initial: RecordingDetail }) {
@@ -20,6 +45,8 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
   const router = useRouter();
   const [rec, setRec] = useState(initial);
   const inflight = rec.status === "QUEUED" || rec.status === "PROCESSING";
+  const searchParams = useSearchParams();
+  const query = (searchParams.get("q") ?? "").trim();
 
   // ---------------------------------------------------------------- polling
   const refresh = useCallback(async () => {
@@ -108,6 +135,43 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
     return idx >= 0 && time <= segs[idx].end + 0.6 ? idx : -1;
   }, [rec.segments, time]);
 
+  const activeWord = useMemo(() => {
+    if (activeIndex < 0) return -1;
+    const words = rec.segments[activeIndex]?.words;
+    if (!words?.length) return -1;
+    let idx = -1;
+    for (let i = 0; i < words.length; i++) {
+      const w = words[i];
+      if (w.start != null && w.start <= time) idx = i;
+    }
+    return idx;
+  }, [rec.segments, activeIndex, time]);
+
+  const matcher = useMemo(() => {
+    if (!query) return null;
+    const terms = query.split(/\s+/).filter(Boolean).map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    return terms.length ? new RegExp(`(${terms.join("|")})`, "giu") : null;
+  }, [query]);
+  const matchCount = useMemo(() => {
+    if (!matcher) return 0;
+    return rec.segments.reduce((n, s) => n + (s.text.match(matcher)?.length ?? 0), 0);
+  }, [matcher, rec.segments]);
+  const matchOffsets = useMemo(() => {
+    const map = new Map<number, number>();
+    if (!matcher) return map;
+    let n = 0;
+    rec.segments.forEach((seg, i) => {
+      map.set(i, n);
+      n += seg.text.match(matcher)?.length ?? 0;
+    });
+    return map;
+  }, [matcher, rec.segments]);
+  const [matchCursor, setMatchCursor] = useState(0);
+  const matchRef = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    matchRef.current?.scrollIntoView({ block: "center" });
+  }, [matchCursor, matchCount]);
+
   const activeRef = useRef<HTMLSpanElement>(null);
   useEffect(() => {
     if (!follow || !playing || !activeRef.current) return;
@@ -115,6 +179,9 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
   }, [activeIndex, follow, playing]);
 
   // ---------------------------------------------------------------- editing
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [editDraft, setEditDraft] = useState("");
+  const [hintsDraft, setHintsDraft] = useState(rec.hints ?? "");
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState(rec.title);
   const [names, setNames] = useState<Record<string, string>>(rec.speakerNames);
@@ -122,7 +189,7 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
 
   useEffect(() => setNames(rec.speakerNames), [rec.speakerNames]);
 
-  const patch = async (body: { title?: string; speakerNames?: Record<string, string> }) => {
+  const patch = async (body: { title?: string; speakerNames?: Record<string, string>; hints?: string | null }) => {
     setSaving(true);
     try {
       const r = await fetch(`/api/recordings/${rec.id}`, {
@@ -134,6 +201,60 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
     } finally {
       setSaving(false);
     }
+  };
+
+  const applyEdits = async (edits: SegmentEdit[]) => {
+    setSaving(true);
+    try {
+      const r = await fetch(`/api/recordings/${rec.id}/segments`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ edits }),
+      });
+      if (r.ok) setRec((await r.json()) as RecordingDetail);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const mergeSpeaker = async (from: string, into: string) => {
+    if (!into || from === into) return;
+    if (!confirm(fmt(m.detail.confirmMerge, { from: label(from), into: label(into) }))) return;
+    setSaving(true);
+    try {
+      const r = await fetch(`/api/recordings/${rec.id}/speakers/merge`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ from, into }),
+      });
+      if (r.ok) setRec((await r.json()) as RecordingDetail);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const assignTurn = async (turnSegments: number[], value: string) => {
+    let speaker = value;
+    if (value === "__new__") {
+      const used = new Set(rec.speakers);
+      let n = 0;
+      while (used.has(`SPEAKER_${String(n).padStart(2, "0")}`)) n += 1;
+      speaker = `SPEAKER_${String(n).padStart(2, "0")}`;
+    }
+    if (!speaker) return;
+    await applyEdits(turnSegments.map((index) => ({ index, speaker })));
+  };
+
+  const startEdit = (index: number) => {
+    setEditingIndex(index);
+    setEditDraft(rec.segments[index]?.text ?? "");
+  };
+  const commitEdit = async () => {
+    if (editingIndex === null) return;
+    const index = editingIndex;
+    const text = editDraft.trim();
+    setEditingIndex(null);
+    if (text && text !== rec.segments[index]?.text) await applyEdits([{ index, text }]);
   };
 
   const saveTitle = async () => {
@@ -322,12 +443,27 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
       {rec.status === "COMPLETED" && (
         <div className="grid gap-5 lg:grid-cols-[1fr_260px]">
           <section className="card p-5">
-            <div className="mb-3 flex items-center justify-between">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <h2 className="font-semibold">{m.detail.transcript}</h2>
-              <label className="flex items-center gap-1.5 text-xs text-zinc-500">
-                <input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} />
-                {m.detail.follow}
-              </label>
+              <div className="flex items-center gap-3 text-xs text-zinc-500">
+                {matcher && (
+                  <span className="flex items-center gap-1">
+                    {fmt(m.detail.searchMatches, { n: matchCount, q: query })}
+                    {matchCount > 1 && (
+                      <button className="btn px-1.5 py-0.5 text-xs" onClick={() => setMatchCursor((c) => (c + 1) % matchCount)}>
+                        {m.detail.nextMatch} ›
+                      </button>
+                    )}
+                  </span>
+                )}
+                <span className="hidden sm:inline" title={m.detail.editHint}>
+                  ✎ {m.detail.editHint}
+                </span>
+                <label className="flex items-center gap-1.5">
+                  <input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} />
+                  {m.detail.follow}
+                </label>
+              </div>
             </div>
             {turns.length === 0 ? (
               <p className="text-sm text-zinc-500">{m.detail.noSpeech}</p>
@@ -337,7 +473,7 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
                   const c = speakerColor(turn.speaker, rec.speakers);
                   return (
                     <div key={ti} className="rounded-md border-l-4 pl-3" style={{ borderColor: c.border, background: c.bg }}>
-                      <div className="flex items-baseline gap-2 pt-1.5">
+                      <div className="group flex items-baseline gap-2 pt-1.5">
                         <span className="text-sm font-semibold" style={{ color: c.fg }}>
                           {label(turn.speaker)}
                         </span>
@@ -347,21 +483,77 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
                         >
                           {formatTime(turn.start)}
                         </button>
+                        <select
+                          className="ml-auto mr-2 rounded border border-zinc-300 bg-white px-1 py-0.5 text-xs text-zinc-600 opacity-0 transition focus:opacity-100 group-hover:opacity-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
+                          title={m.detail.assignSpeaker}
+                          aria-label={m.detail.assignSpeaker}
+                          value={turn.speaker}
+                          onChange={(e) => assignTurn(turn.segments.map((sg) => sg.index), e.target.value)}
+                        >
+                          {rec.speakers.map((id) => (
+                            <option key={id} value={id}>
+                              {label(id)}
+                            </option>
+                          ))}
+                          <option value="__new__">{m.detail.newSpeaker}</option>
+                        </select>
                       </div>
                       <p className="pb-2 pt-0.5 text-[15px] leading-relaxed">
                         {turn.segments.map((seg) => {
                           const active = seg.index === activeIndex;
+                          if (editingIndex === seg.index) {
+                            return (
+                              <textarea
+                                key={seg.index}
+                                autoFocus
+                                className="input my-1 min-h-[60px] text-[15px]"
+                                value={editDraft}
+                                onChange={(e) => setEditDraft(e.target.value)}
+                                onBlur={commitEdit}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" && !e.shiftKey) {
+                                    e.preventDefault();
+                                    void commitEdit();
+                                  } else if (e.key === "Escape") {
+                                    setEditingIndex(null);
+                                  }
+                                }}
+                              />
+                            );
+                          }
+                          const words = active && seg.words?.length ? seg.words : null;
                           return (
                             <span
                               key={seg.index}
                               ref={active ? activeRef : undefined}
                               onClick={() => seekTo(seg.start, true)}
+                              onDoubleClick={(e) => {
+                                e.preventDefault();
+                                startEdit(seg.index);
+                              }}
                               title={`${formatTime(seg.start)} – ${formatTime(seg.end)}`}
                               className={`cursor-pointer rounded px-0.5 transition ${
-                                active ? "bg-yellow-200 dark:bg-yellow-700/60" : "hover:bg-zinc-200/60 dark:hover:bg-zinc-700/50"
+                                active ? "bg-yellow-100 dark:bg-yellow-900/40" : "hover:bg-zinc-200/60 dark:hover:bg-zinc-700/50"
                               }`}
                             >
-                              {seg.text}{" "}
+                              {words
+                                ? words.map((w, wi) => (
+                                    <span
+                                      key={wi}
+                                      onClick={(e) => {
+                                        if (w.start == null) return;
+                                        e.stopPropagation();
+                                        seekTo(w.start, true);
+                                      }}
+                                      className={wi === activeWord ? "rounded bg-yellow-300 dark:bg-yellow-600/80" : undefined}
+                                    >
+                                      {w.word}{" "}
+                                    </span>
+                                  ))
+                                : matcher
+                                  ? highlightMatches(seg.text, matcher, matchOffsets.get(seg.index) ?? 0, matchCursor, matchRef)
+                                  : seg.text}
+                              {!words && " "}
                             </span>
                           );
                         })}
@@ -392,6 +584,24 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
                         onBlur={saveNames}
                         onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
                       />
+                      {rec.speakers.length > 1 && (
+                        <select
+                          className="w-8 shrink-0 rounded border border-zinc-300 bg-white py-1 text-xs text-zinc-500 dark:border-zinc-700 dark:bg-zinc-900"
+                          title={m.detail.mergeInto}
+                          aria-label={`${m.detail.mergeInto} ${label(id)}`}
+                          value=""
+                          onChange={(e) => mergeSpeaker(id, e.target.value)}
+                        >
+                          <option value="">⇄</option>
+                          {rec.speakers
+                            .filter((other) => other !== id)
+                            .map((other) => (
+                              <option key={other} value={other}>
+                                → {label(other)}
+                              </option>
+                            ))}
+                        </select>
+                      )}
                     </div>
                   );
                 })}
@@ -400,6 +610,21 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
                 </p>
               </div>
             )}
+            <div className="mt-5 border-t border-zinc-200 pt-4 dark:border-zinc-800">
+              <h3 className="mb-1 text-sm font-semibold">{m.detail.hintsTitle}</h3>
+              <textarea
+                className="input min-h-[64px] text-sm"
+                value={hintsDraft}
+                onChange={(e) => setHintsDraft(e.target.value)}
+                placeholder={m.upload.hintsPlaceholder}
+              />
+              <div className="mt-2 flex items-center gap-2">
+                <button className="btn py-1 text-xs" disabled={hintsDraft === (rec.hints ?? "")} onClick={() => patch({ hints: hintsDraft })}>
+                  {m.detail.hintsSave}
+                </button>
+                <span className="text-xs text-zinc-500">{m.detail.hintsNote}</span>
+              </div>
+            </div>
           </aside>
         </div>
       )}

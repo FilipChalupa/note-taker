@@ -25,6 +25,7 @@ export function UploadForm({ defaultLanguage, maxUploadBytes }: { defaultLanguag
   const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState("");
   const [language, setLanguage] = useState(defaultLanguage);
+  const [hints, setHints] = useState("");
   const [minSpeakers, setMinSpeakers] = useState("");
   const [maxSpeakers, setMaxSpeakers] = useState("");
   const [progress, setProgress] = useState<number | null>(null);
@@ -65,6 +66,7 @@ export function UploadForm({ defaultLanguage, maxUploadBytes }: { defaultLanguag
     form.append("file", file, file.name);
     form.append("title", title);
     form.append("language", language);
+    if (hints.trim()) form.append("hints", hints.trim());
     if (minSpeakers) form.append("minSpeakers", minSpeakers);
     if (maxSpeakers) form.append("maxSpeakers", maxSpeakers);
 
@@ -150,6 +152,12 @@ export function UploadForm({ defaultLanguage, maxUploadBytes }: { defaultLanguag
       <p className="-mt-3 text-xs text-zinc-500">
         {m.upload.speakersHint}
       </p>
+
+      <div>
+        <label className="mb-1 block text-sm font-medium">{m.upload.hints}</label>
+        <textarea className="input min-h-[72px]" value={hints} onChange={(e) => setHints(e.target.value)} placeholder={m.upload.hintsPlaceholder} />
+        <p className="mt-1 text-xs text-zinc-500">{m.upload.hintsHelp}</p>
+      </div>
 
       {error && <p className="text-sm text-red-600">{error}</p>}
 

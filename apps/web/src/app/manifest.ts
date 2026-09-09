@@ -26,6 +26,11 @@ export default async function manifest(): Promise<MetadataRoute.Manifest> {
     ],
     shortcuts: [
       {
+        name: locale === "cs" ? "Nahrávat" : "Record",
+        url: "/record",
+        icons: [{ src: "/icons/icon-192.png", sizes: "192x192", type: "image/png" }],
+      },
+      {
         name: locale === "cs" ? "Nahrát schůzku" : "Upload meeting",
         url: "/upload",
         icons: [{ src: "/icons/icon-192.png", sizes: "192x192", type: "image/png" }],

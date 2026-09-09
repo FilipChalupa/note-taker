@@ -22,6 +22,13 @@ export function formatDuration(sec: number | null | undefined, m: Messages): str
   return `${s} ${m.units.s}`;
 }
 
+export function formatBytes(b: number): string {
+  if (b >= 1024 ** 3) return `${(b / 1024 ** 3).toFixed(2)} GB`;
+  if (b >= 1024 ** 2) return `${(b / 1024 ** 2).toFixed(1)} MB`;
+  if (b >= 1024) return `${Math.round(b / 1024)} kB`;
+  return `${b} B`;
+}
+
 export function intlLocale(locale: Locale): string {
   return locale === "cs" ? "cs-CZ" : "en-GB";
 }

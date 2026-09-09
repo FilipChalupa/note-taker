@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { Suspense } from "react";
 import { getRecording } from "@/lib/recordings";
 import { ensurePollerStarted } from "@/lib/poller";
 import { RecordingView } from "@/components/RecordingView";
@@ -10,5 +11,9 @@ export default async function RecordingPage({ params }: { params: Promise<{ id: 
   const { id } = await params;
   const rec = getRecording(id);
   if (!rec) notFound();
-  return <RecordingView initial={rec} />;
+  return (
+    <Suspense>
+      <RecordingView initial={rec} />
+    </Suspense>
+  );
 }

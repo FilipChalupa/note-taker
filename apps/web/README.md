@@ -47,6 +47,12 @@ The DB schema is created automatically on startup (`src/lib/db/index.ts`, `CREAT
 | `DEFAULT_LANGUAGE` | `cs` | preselected language in the upload form |
 | `MAX_UPLOAD_MB` | `2048` | upload size limit |
 
+## Glossary
+
+Whisper accepts a short text prompt that biases spelling. Settings → *Global glossary* holds names and terms used in
+every recording; the upload form and the recording detail add per-recording *hints*. Both are merged, de-duplicated,
+trimmed to Whisper's prompt budget (~900 characters) and sent as `initial_prompt` with each task.
+
 ## API (internal, used by the UI)
 
 | Method | Path | Description |
@@ -57,6 +63,12 @@ The DB schema is created automatically on startup (`src/lib/db/index.ts`, `CREAT
 | `POST` | `/api/recordings/:id/retry` | resubmit to the worker |
 | `GET` | `/api/recordings/:id/audio` | audio with `Range` support |
 | `GET` | `/api/recordings/:id/export?format=md\|txt\|srt\|vtt` | transcript export |
+| `PATCH` | `/api/recordings/:id/segments` | edit segments: `{ edits: [{ index, text?, speaker? }] }` |
+| `POST` | `/api/recordings/:id/speakers/merge` | `{ from, into }` merge one speaker into another |
+| `POST` | `/api/recordings/:id/rediarize` | queue a speakers-only re-run (`{ minSpeakers?, maxSpeakers? }`) |
+| `GET` | `/api/search?q=` | full-text search (FTS5) with snippets |
+| `GET` / `PUT` | `/api/settings` | global glossary |
+| `GET` | `/api/storage` | disk usage of `DATA_DIR` and free space |
 | `GET` | `/api/worker/health` | worker reachability + GPU info |
 
 ## Behaviour when the worker is down

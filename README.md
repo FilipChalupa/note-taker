@@ -22,6 +22,19 @@ on completion it downloads the result and the normalized audio and stores both l
 may be offline: the recording stays "queued" and the web app hands it over as soon as the worker is
 reachable again.
 
+## Features
+
+- Upload any audio/video container (drag & drop anywhere) or **record directly in the browser** (PWA, works on phones).
+- Transcription with WhisperX `large-v3`, word-level timestamps, speaker diarization (pyannote), hallucination filter.
+- **Glossary**: global list of names/terms plus per-recording hints, handed to Whisper so unusual words are spelled right.
+- Player with 1×–3× speed, ±5 s, keyboard and media keys; keeps playing while you browse. Click any sentence or word to seek; the current word is highlighted.
+- Transcript editing: fix text inline, reassign a turn to another speaker, merge speakers, rename speakers.
+- Recompute speakers without re-transcribing; reprocess from scratch.
+- Full-text search across all transcripts (diacritics-insensitive), with matches highlighted in the transcript.
+- Queue page with real progress, ETA and processing speed; works offline from the worker (uploads wait, finished transcripts stay available).
+- Export to Markdown, plain text, SRT, VTT; download the normalized MP3.
+- Czech and English UI; disk usage overview in Settings.
+
 ## Screenshots
 
 Sample data shown below is fictional.
