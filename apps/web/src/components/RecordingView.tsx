@@ -580,7 +580,7 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
     <div className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-[16rem] flex-1 basis-[28rem]">
-          <Link href="/" className="text-sm text-zinc-500 hover:underline">
+          <Link href="/" className="text-sm text-zinc-500 hover:underline print:hidden">
             {m.detail.back}
           </Link>
           {editingTitle ? (
@@ -627,7 +627,7 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
               </Link>
             ))}
             <input
-              className="input w-56 max-w-full py-0.5 text-xs"
+              className="input w-56 max-w-full py-0.5 text-xs print:hidden"
               value={tagsDraft}
               placeholder={m.tags.placeholder}
               aria-label={m.tags.label}
@@ -1014,7 +1014,7 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
                     </div>
                   );
                 })}
-                <p className="pt-1 text-xs text-zinc-500">
+                <p className="pt-1 text-xs text-zinc-500 print:hidden">
                   {saving ? m.detail.saving : rec.speakersWithEmbedding.length > 0 ? `${m.detail.renameNote} ${m.voices.help}` : m.detail.renameNote}
                 </p>
               </div>
@@ -1047,7 +1047,7 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
                 </div>
               </div>
             )}
-            <div className="mt-5 border-t border-zinc-200 pt-4 dark:border-zinc-800">
+            <div className="mt-5 border-t border-zinc-200 pt-4 dark:border-zinc-800 print:hidden">
               <h3 className="mb-1 text-sm font-semibold">{m.detail.hintsTitle}</h3>
               <textarea
                 className="input min-h-[64px] text-sm"

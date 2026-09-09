@@ -84,9 +84,11 @@ body {
   [data-print="aside"] h3 + textarea {
     display: none !important;
   }
-  section .group > select,
-  section .group > button {
+  section .group > select {
     display: none !important;
+  }
+  section .group > button {
+    color: #666 !important;
   }
   section .group > span:first-child {
     color: #000 !important;
