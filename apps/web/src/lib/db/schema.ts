@@ -13,6 +13,8 @@ export const recordings = sqliteTable("recordings", {
   maxSpeakers: integer("max_speakers"),
 
   status: text("status").$type<RecordingStatus>().notNull().default("QUEUED"),
+  /** What the next/current worker task should do: full transcription or speakers only */
+  taskKind: text("task_kind").$type<"transcribe" | "diarize">().notNull().default("transcribe"),
   workerTaskId: text("worker_task_id"),
   workerStatus: text("worker_status").$type<WorkerTaskStatus>(),
   progress: integer("progress").notNull().default(0),

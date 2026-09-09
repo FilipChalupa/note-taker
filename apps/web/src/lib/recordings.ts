@@ -58,6 +58,7 @@ export function listRecordings(): RecordingSummary[] {
       minSpeakers: recordings.minSpeakers,
       maxSpeakers: recordings.maxSpeakers,
       status: recordings.status,
+      taskKind: recordings.taskKind,
       workerTaskId: recordings.workerTaskId,
       workerStatus: recordings.workerStatus,
       progress: recordings.progress,
@@ -173,6 +174,7 @@ export async function retryRecording(id: string): Promise<RecordingDetail | null
   db.update(recordings)
     .set({
       status: "QUEUED",
+      taskKind: "transcribe",
       workerTaskId: null,
       workerStatus: null,
       progress: 0,
@@ -191,8 +193,8 @@ export async function retryRecording(id: string): Promise<RecordingDetail | null
 }
 
 /**
- * Re-run speaker identification only. Keeps the transcript, sends audio + segments to the worker.
- * Returns an error code when it cannot be started (worker offline, diarization disabled...).
+ * Queue a speakers-only re-run. Keeps the transcript; the poller hands audio + segments to the
+ * worker (task kind "diarize") as soon as it is reachable.
  */
 export async function rediarizeRecording(
   id: string,
@@ -205,32 +207,24 @@ export async function rediarizeRecording(
   if (!audio) return { error: "AUDIO_UNAVAILABLE", status: 409 };
   if (!row.segments?.length) return { error: "NO_TRANSCRIPT", status: 409 };
 
-  let accepted;
-  try {
-    accepted = await workerClient.submitDiarize(audio, path.basename(audio), row.segments, {
-      language: row.detectedLanguage ?? undefined,
-      min_speakers: opts.minSpeakers,
-      max_speakers: opts.maxSpeakers,
-    });
-  } catch (err) {
-    const status = err instanceof WorkerError && err.status === 409 ? 409 : 503;
-    return { error: `WORKER:${(err as Error).message}`, status };
-  }
   db.update(recordings)
     .set({
-      status: "PROCESSING",
-      workerTaskId: accepted.task_id,
-      workerStatus: accepted.status,
+      status: "QUEUED",
+      taskKind: "diarize",
+      workerTaskId: null,
+      workerStatus: null,
       progress: 0,
-      phase: accepted.queue_position > 0 ? `WORKER_QUEUE:${accepted.queue_position}` : "DIARIZING",
+      phase: "QUEUED",
       error: null,
       warning: null,
+      dispatchAttempts: 0,
       minSpeakers: opts.minSpeakers ?? null,
       maxSpeakers: opts.maxSpeakers ?? null,
       updatedAt: now(),
     })
     .where(eq(recordings.id, id))
     .run();
+  await dispatch(id);
   return { recording: getRecording(id)! };
 }
 
@@ -240,11 +234,21 @@ export async function dispatch(id: string): Promise<void> {
   const row = getRecordingRow(id);
   if (!row || row.workerTaskId || row.status !== "QUEUED") return;
   try {
-    const accepted = await workerClient.submit(row.originalPath, row.originalFilename, {
-      language: row.language === "auto" ? undefined : row.language,
-      min_speakers: row.minSpeakers ?? undefined,
-      max_speakers: row.maxSpeakers ?? undefined,
-    });
+    let accepted;
+    if (row.taskKind === "diarize") {
+      const audio = row.audioPath && fs.existsSync(row.audioPath) ? row.audioPath : row.originalPath;
+      accepted = await workerClient.submitDiarize(audio, path.basename(audio), row.segments, {
+        language: row.detectedLanguage ?? undefined,
+        min_speakers: row.minSpeakers ?? undefined,
+        max_speakers: row.maxSpeakers ?? undefined,
+      });
+    } else {
+      accepted = await workerClient.submit(row.originalPath, row.originalFilename, {
+        language: row.language === "auto" ? undefined : row.language,
+        min_speakers: row.minSpeakers ?? undefined,
+        max_speakers: row.maxSpeakers ?? undefined,
+      });
+    }
     db.update(recordings)
       .set({
         workerTaskId: accepted.task_id,
@@ -258,6 +262,14 @@ export async function dispatch(id: string): Promise<void> {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     const retryable = !(err instanceof WorkerError) || err.retryable;
+    if (!retryable && row.taskKind === "diarize") {
+      // Speakers-only re-run rejected (e.g. diarization disabled): keep the existing transcript
+      db.update(recordings)
+        .set({ status: "COMPLETED", taskKind: "transcribe", phase: "COMPLETED", warning: `DIARIZATION_FAILED:${msg}`, updatedAt: now() })
+        .where(eq(recordings.id, id))
+        .run();
+      return;
+    }
     db.update(recordings)
       .set({
         status: retryable ? "QUEUED" : "FAILED",
@@ -295,6 +307,24 @@ export async function syncRecording(id: string): Promise<void> {
     }
     db.update(recordings)
       .set({ phase: "WORKER_UNREACHABLE", error: (err as Error).message, updatedAt: now() })
+      .where(eq(recordings.id, id))
+      .run();
+    return;
+  }
+
+  if (status.status === "FAILED" && row.taskKind === "diarize") {
+    // Keep the existing transcript, just report that speakers could not be recomputed
+    db.update(recordings)
+      .set({
+        status: "COMPLETED",
+        taskKind: "transcribe",
+        workerTaskId: null,
+        workerStatus: null,
+        progress: 100,
+        phase: "COMPLETED",
+        warning: `DIARIZATION_FAILED:${status.error ?? "WORKER_UNKNOWN_ERROR"}`,
+        updatedAt: now(),
+      })
       .where(eq(recordings.id, id))
       .run();
     return;
@@ -362,6 +392,7 @@ export async function syncRecording(id: string): Promise<void> {
   db.update(recordings)
     .set({
       status: "COMPLETED",
+      taskKind: "transcribe",
       workerStatus: "COMPLETED",
       progress: 100,
       phase: "COMPLETED",

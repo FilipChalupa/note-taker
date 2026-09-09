@@ -14,7 +14,7 @@ export async function GET() {
 
   // Local recordings that have not been accepted by the worker yet
   const waitingRows = db
-    .select({ id: recordings.id, title: recordings.title, filename: recordings.originalFilename, phase: recordings.phase, createdAt: recordings.createdAt, durationSec: recordings.durationSec })
+    .select({ id: recordings.id, title: recordings.title, filename: recordings.originalFilename, phase: recordings.phase, createdAt: recordings.createdAt, durationSec: recordings.durationSec, taskKind: recordings.taskKind })
     .from(recordings)
     .where(inArray(recordings.status, ["QUEUED"]))
     .all();
@@ -64,7 +64,7 @@ export async function GET() {
     .filter((r) => !linkedIds.has(r.id))
     .map((r) => ({
       taskId: null,
-      kind: "transcribe" as const,
+      kind: r.taskKind,
       status: "QUEUED",
       progress: 0,
       phase: r.phase ?? "WAITING_FOR_WORKER",

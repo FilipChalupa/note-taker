@@ -63,4 +63,5 @@ The DB schema is created automatically on startup (`src/lib/db/index.ts`, `CREAT
 
 The recording stays *Queued* ("waiting for the worker") and the poller resubmits it with exponential
 backoff (max 2 min) once the worker responds. If the worker loses the task (restart, TTL), the web app
-resubmits it from the original file.
+resubmits it from the original file. "Recompute speakers" is queued the same way; if it cannot run, the existing
+transcript is kept and a warning is shown.

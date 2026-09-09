@@ -105,13 +105,20 @@ class TaskQueue:
             except Exception:  # noqa: BLE001
                 continue
             if not task.status.terminal:
-                # Worker died mid-task: requeue if input still exists, else fail
-                if task.input_path and Path(task.input_path).exists():
+                # Worker died mid-task: requeue from the original upload or, after conversion,
+                # from the normalized audio (the upload is deleted once converted)
+                has_input = bool(task.input_path and Path(task.input_path).exists())
+                has_audio = bool(task.audio_path and Path(task.audio_path).exists())
+                if has_input or has_audio:
                     task.status = TaskStatus.QUEUED
                     task.progress = 0
+                    task.phase_started_at = None
+                    task.phase_seconds = {}
+                    task.error = None
                     self._tasks[task.id] = task
                     self._order.append(task.id)
                     self._q.put(task.id)
+                    log.info("Requeued unfinished task %s (%s)", task.id, "from upload" if has_input else "from normalized audio")
                     continue
                 task.status = TaskStatus.FAILED
                 task.error = "Worker restarted before task finished"
@@ -323,20 +330,28 @@ class TaskQueue:
         task.started_at = _now()
         self._update(task, TaskStatus.CONVERTING, 5)
 
-        src = Path(task.input_path)  # type: ignore[arg-type]
         ext = "wav" if settings.audio_codec == "wav" else "mp3"
         dst = task.dir / f"audio.{ext}"
-        audio_utils.normalize(src, dst, settings.sample_rate, settings.audio_codec, settings.loudness)
-        task.audio_path = str(dst)
-        task.duration = audio_utils.probe_duration(dst)
-        self._update(task, TaskStatus.CONVERTING, 15)
-
-        # Remove original upload to save disk; normalized copy is kept
-        try:
-            src.unlink()
-            task.input_path = None
-        except OSError:
-            pass
+        if task.input_path and Path(task.input_path).exists():
+            src = Path(task.input_path)
+            audio_utils.normalize(src, dst, settings.sample_rate, settings.audio_codec, settings.loudness)
+            task.audio_path = str(dst)
+            task.duration = audio_utils.probe_duration(dst)
+            self._update(task, TaskStatus.CONVERTING, 15)
+            # Remove original upload to save disk; normalized copy is kept
+            try:
+                src.unlink()
+                task.input_path = None
+            except OSError:
+                pass
+        elif task.audio_path and Path(task.audio_path).exists():
+            # Restored after a restart: conversion already happened
+            dst = Path(task.audio_path)
+            if task.duration is None:
+                task.duration = audio_utils.probe_duration(dst)
+            self._update(task, TaskStatus.CONVERTING, 15)
+        else:
+            raise RuntimeError("Input file is missing (worker restarted before conversion finished)")
 
         def progress(status: str, pct: int) -> None:
             self._update(task, TaskStatus(status), pct)

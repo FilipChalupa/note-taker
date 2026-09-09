@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS recordings (
   min_speakers INTEGER,
   max_speakers INTEGER,
   status TEXT NOT NULL DEFAULT 'QUEUED',
+  task_kind TEXT NOT NULL DEFAULT 'transcribe',
   worker_task_id TEXT,
   worker_status TEXT,
   progress INTEGER NOT NULL DEFAULT 0,
@@ -49,6 +50,7 @@ function open(): Db {
   // Lightweight forward migrations for databases created by older versions
   const cols = new Set((sqlite.prepare("PRAGMA table_info(recordings)").all() as { name: string }[]).map((c) => c.name));
   if (!cols.has("warning")) sqlite.exec("ALTER TABLE recordings ADD COLUMN warning TEXT");
+  if (!cols.has("task_kind")) sqlite.exec("ALTER TABLE recordings ADD COLUMN task_kind TEXT NOT NULL DEFAULT 'transcribe'");
   return drizzle(sqlite, { schema });
 }
 
