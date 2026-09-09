@@ -28,11 +28,12 @@ reachable again.
 - Transcription with WhisperX `large-v3`, word-level timestamps, speaker diarization (pyannote), hallucination filter.
 - **Glossary**: global list of names/terms plus per-recording hints, handed to Whisper so unusual words are spelled right.
 - Player with 1×–3× speed, ±5 s, keyboard and media keys; keeps playing while you browse. Click any sentence or word to seek; the current word is highlighted.
-- Transcript editing: fix text inline, reassign a turn to another speaker, merge speakers, rename speakers.
+- Transcript editing: fix text inline, adjust start/end times, split a sentence at the cursor (Ctrl+Enter), reassign a turn to another speaker, merge speakers, rename speakers, undo.
 - Recompute speakers without re-transcribing; reprocess from scratch.
 - Full-text search across all transcripts (diacritics-insensitive), with matches highlighted in the transcript.
 - Queue page with real progress, ETA and processing speed; works offline from the worker (uploads wait, finished transcripts stay available).
-- Export to Markdown, plain text, SRT, VTT; download the normalized MP3.
+- Export to Markdown, plain text, SRT, VTT; print-friendly layout; download the normalized MP3.
+- Keyboard-driven list (arrows/J K, Space to select, A, F, E, T, Delete) and transcript (J K, N P, E, ?).
 - Push notifications when a transcript is ready (works with the app closed; needs HTTPS), undo for edits, keyboard shortcuts (`?`), copy to clipboard.
 - Tags and notes per recording; list with tag filter, Active / Favorites / Archive views, sorting, pagination and bulk actions; watch-folder import (`IMPORT_DIR`).
 - Web Share Target: the installed PWA appears in the phone's Share sheet for audio files.

@@ -178,11 +178,14 @@ export interface RecordingDetail extends RecordingSummary {
 
 export type ExportFormat = "md" | "txt" | "srt" | "vtt";
 
-/** One transcript edit: change text and/or speaker of the segment at `index`. */
+/** One transcript edit: change text, speaker and/or times of the segment at `index`. */
 export interface SegmentEdit {
   index: number;
   text?: string;
   speaker?: string;
+  /** seconds */
+  start?: number;
+  end?: number;
 }
 
 export interface SearchHit {

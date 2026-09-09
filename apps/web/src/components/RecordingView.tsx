@@ -217,6 +217,9 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
   const [exportOpen, setExportOpen] = useState(false);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editDraft, setEditDraft] = useState("");
+  const [editStart, setEditStart] = useState("");
+  const [editEnd, setEditEnd] = useState("");
+  const editRef = useRef<HTMLTextAreaElement>(null);
   const [hintsDraft, setHintsDraft] = useState(rec.hints ?? "");
   const [tagsDraft, setTagsDraft] = useState(rec.tags.join(", "));
   const [notesDraft, setNotesDraft] = useState(rec.notes ?? "");
@@ -376,18 +379,75 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
     }
   };
 
+  const fmtSec = (v: number) => {
+    const s = Math.max(0, v);
+    const mm = Math.floor(s / 60);
+    const ss = (s - mm * 60).toFixed(1).padStart(4, "0");
+    return `${mm}:${ss}`;
+  };
+  const parseSec = (v: string): number | null => {
+    const t = v.trim();
+    if (!t) return null;
+    const parts = t.split(":").map((x) => Number(x.replace(",", ".")));
+    if (parts.some((x) => !Number.isFinite(x))) return null;
+    return parts.reduce((a, x) => a * 60 + x, 0);
+  };
+
   const startEdit = (index: number) => {
+    const seg = rec.segments[index];
     setEditingIndex(index);
-    setEditDraft(rec.segments[index]?.text ?? "");
+    setEditDraft(seg?.text ?? "");
+    setEditStart(seg ? fmtSec(seg.start) : "");
+    setEditEnd(seg ? fmtSec(seg.end) : "");
+  };
+
+  const splitAtCursor = async () => {
+    if (editingIndex === null) return;
+    const index = editingIndex;
+    const ta = editRef.current;
+    const position = ta ? ta.selectionStart : Math.floor(editDraft.length / 2);
+    const text = editDraft.trim();
+    setEditingIndex(null);
+    pushHistory(rec);
+    setSaving(true);
+    try {
+      // persist a text change first so the split works on what the user sees
+      if (text && text !== rec.segments[index]?.text) {
+        await fetch(`/api/recordings/${rec.id}/segments`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ edits: [{ index, text }] }),
+        });
+      }
+      const r = await fetch(`/api/recordings/${rec.id}/segments/split`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ index, position }),
+      });
+      if (r.ok) setRec((await r.json()) as RecordingDetail);
+    } finally {
+      setSaving(false);
+    }
   };
   const commitEdit = async () => {
     if (editingIndex === null) return;
     const index = editingIndex;
+    const seg = rec.segments[index];
     const text = editDraft.trim();
-    const before = rec.segments[index]?.text ?? "";
+    const before = seg?.text ?? "";
     setEditingIndex(null);
-    if (!text || text === before) return;
-    await applyEdits([{ index, text }]);
+    const start = parseSec(editStart);
+    const end = parseSec(editEnd);
+    const timeChanged = seg && ((start != null && Math.abs(start - seg.start) > 0.01) || (end != null && Math.abs(end - seg.end) > 0.01));
+    if ((!text || text === before) && !timeChanged) return;
+    const edit: SegmentEdit = { index };
+    if (text && text !== before) edit.text = text;
+    if (timeChanged) {
+      if (start != null) edit.start = start;
+      if (end != null) edit.end = end;
+    }
+    await applyEdits([edit]);
+    if (!edit.text) return;
     // Words that appear only after the correction are glossary candidates ("Kadlova" -> "Karlova")
     const tokens = (t: string) => t.split(/\s+/).map((w) => w.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "")).filter((w) => w.length >= 3 && /\p{L}/u.test(w));
     const old = new Set(tokens(before).map((w) => w.toLowerCase()));
@@ -577,7 +637,7 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
             />
           </div>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 print:hidden">
           <button
             className={`btn ${rec.favorite ? "text-amber-500" : ""}`}
             title={rec.favorite ? m.listx.unstar : m.listx.star}
@@ -607,6 +667,16 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
                       {m.detail.downloadAudio}
                     </a>
                   )}
+                  <button
+                    className="rounded border-t border-zinc-200 px-3 py-1.5 text-left hover:bg-zinc-100 dark:border-zinc-800 dark:hover:bg-zinc-800"
+                    onClick={() => {
+                      setExportOpen(false);
+                      window.print();
+                    }}
+                    data-testid="print"
+                  >
+                    🖨 {m.detail.print}
+                  </button>
                 </div>
               )}
             </div>
@@ -685,7 +755,7 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
       )}
 
       {rec.audioUrl && (
-        <div className="card sticky top-2 z-10 p-4">
+        <div className="card sticky top-2 z-10 p-4 print:hidden">
           <PlayerControls
             playing={playing}
             time={time}
@@ -699,8 +769,14 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
         </div>
       )}
 
-      <section className="card p-4">
-        <div className="mb-1 flex items-center justify-between">
+      <section className="card p-4" data-print={rec.notes ? "notes" : "hide"}>
+        {rec.notes && (
+          <div className="hidden print:block">
+            <h2 className="text-sm font-semibold">{m.notes.label}</h2>
+            <p className="whitespace-pre-wrap text-sm">{rec.notes}</p>
+          </div>
+        )}
+        <div className="mb-1 flex items-center justify-between print:hidden">
           <h2 className="text-sm font-semibold">{m.notes.label}</h2>
           <span className="text-xs text-zinc-500">{notesSaved ? m.notes.saved : ""}</span>
         </div>
@@ -711,6 +787,7 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
           aria-label={m.notes.label}
           onChange={(e) => setNotesDraft(e.target.value)}
           onBlur={saveNotes}
+          data-print="hide"
         />
       </section>
 
@@ -719,7 +796,7 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
           <section className="card p-5">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <h2 className="font-semibold">{m.detail.transcript}</h2>
-              <div className="flex items-center gap-3 text-xs text-zinc-500">
+              <div className="flex items-center gap-3 text-xs text-zinc-500 print:hidden">
                 {matcher && (
                   <span className="flex items-center gap-1">
                     {fmt(m.detail.searchMatches, { n: matchCount, q: query })}
@@ -794,22 +871,47 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
                           const active = seg.index === activeIndex;
                           if (editingIndex === seg.index) {
                             return (
-                              <textarea
-                                key={seg.index}
-                                autoFocus
-                                className="input my-1 min-h-[60px] text-[15px]"
-                                value={editDraft}
-                                onChange={(e) => setEditDraft(e.target.value)}
-                                onBlur={commitEdit}
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter" && !e.shiftKey) {
-                                    e.preventDefault();
-                                    void commitEdit();
-                                  } else if (e.key === "Escape") {
-                                    setEditingIndex(null);
-                                  }
-                                }}
-                              />
+                              <span key={seg.index} className="my-1 block rounded-md border border-blue-300 bg-white p-2 dark:border-blue-800 dark:bg-zinc-900" data-testid="segment-editor" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
+                                <textarea
+                                  ref={editRef}
+                                  autoFocus
+                                  className="input min-h-[60px] text-[15px]"
+                                  value={editDraft}
+                                  onChange={(e) => setEditDraft(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                                      e.preventDefault();
+                                      void splitAtCursor();
+                                    } else if (e.key === "Enter" && !e.shiftKey) {
+                                      e.preventDefault();
+                                      void commitEdit();
+                                    } else if (e.key === "Escape") {
+                                      setEditingIndex(null);
+                                    }
+                                  }}
+                                />
+                                <span className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                                  <label className="flex items-center gap-1 text-zinc-500">
+                                    {m.detail.timeStart}
+                                    <input className="input w-20 py-0.5 font-mono text-xs" value={editStart} onChange={(e) => setEditStart(e.target.value)} aria-label={m.detail.timeStart} />
+                                  </label>
+                                  <label className="flex items-center gap-1 text-zinc-500">
+                                    {m.detail.timeEnd}
+                                    <input className="input w-20 py-0.5 font-mono text-xs" value={editEnd} onChange={(e) => setEditEnd(e.target.value)} aria-label={m.detail.timeEnd} />
+                                  </label>
+                                  <span className="ml-auto flex gap-1">
+                                    <button className="btn py-0.5 text-xs" onClick={splitAtCursor} title={m.detail.splitHint}>
+                                      ✂ {m.detail.split}
+                                    </button>
+                                    <button className="btn py-0.5 text-xs" onClick={() => setEditingIndex(null)}>
+                                      {m.detail.cancel}
+                                    </button>
+                                    <button className="btn btn-primary py-0.5 text-xs" onClick={commitEdit}>
+                                      {m.detail.save}
+                                    </button>
+                                  </span>
+                                </span>
+                              </span>
                             );
                           }
                           const words = active && seg.words?.length ? seg.words : null;
@@ -857,7 +959,7 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
             )}
           </section>
 
-          <aside className="card h-fit p-5 lg:sticky lg:top-40">
+          <aside className="card h-fit p-5 lg:sticky lg:top-40 print:static print:break-inside-avoid" data-print="aside">
             <h2 className="mb-3 font-semibold">{m.detail.speakers}</h2>
             {Object.keys(rec.speakerSuggestions).some((id) => !names[id]) && (
               <button className="btn mb-3 w-full justify-center py-1 text-xs" onClick={() => applySuggestions()} data-testid="apply-all-suggestions">

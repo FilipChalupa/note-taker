@@ -373,8 +373,65 @@ export function editSegments(id: string, edits: SegmentEdit[]): RecordingDetail 
       next.speaker = e.speaker;
       next.words = next.words?.map((w) => ({ ...w, speaker: e.speaker }));
     }
+    // Time edits: clamp to sane bounds and rescale word timings into the new range
+    const start = typeof e.start === "number" && Number.isFinite(e.start) ? Math.max(0, e.start) : next.start;
+    const end = typeof e.end === "number" && Number.isFinite(e.end) ? Math.max(start + 0.1, e.end) : Math.max(start + 0.1, next.end);
+    if (start !== next.start || end !== next.end) {
+      const oldSpan = Math.max(0.001, next.end - next.start);
+      const scale = (end - start) / oldSpan;
+      next.words = next.words?.map((w) => ({
+        ...w,
+        start: w.start == null ? w.start : Math.round((start + (w.start - seg.start) * scale) * 1000) / 1000,
+        end: w.end == null ? w.end : Math.round((start + (w.end - seg.start) * scale) * 1000) / 1000,
+      }));
+      next.start = Math.round(start * 1000) / 1000;
+      next.end = Math.round(end * 1000) / 1000;
+    }
     segments[e.index] = next;
   }
+  segments.sort((a, b) => a.start - b.start);
+  saveSegments(id, row, segments);
+  return getRecording(id);
+}
+
+/**
+ * Split the segment at `index` into two at character `position` of its text.
+ * The boundary time comes from word timestamps when available, otherwise proportionally to text length.
+ */
+export function splitSegment(id: string, index: number, position: number): RecordingDetail | null {
+  const row = getRecordingRow(id);
+  if (!row) return null;
+  const segments = [...(row.segments ?? [])];
+  const seg = segments[index];
+  if (!seg) return getRecording(id);
+  const text = seg.text;
+  const pos = Math.max(0, Math.min(text.length, position));
+  const left = text.slice(0, pos).trim();
+  const right = text.slice(pos).trim();
+  if (!left || !right) return getRecording(id);
+
+  let boundary: number;
+  let leftWords: TranscriptSegment["words"];
+  let rightWords: TranscriptSegment["words"];
+  const leftCount = left.split(/\s+/).length;
+  if (seg.words && seg.words.length >= 2 && leftCount < seg.words.length) {
+    leftWords = seg.words.slice(0, leftCount);
+    rightWords = seg.words.slice(leftCount);
+    const lastLeft = [...leftWords].reverse().find((w) => w.end != null)?.end;
+    const firstRight = rightWords.find((w) => w.start != null)?.start;
+    boundary = lastLeft != null && firstRight != null ? (lastLeft + firstRight) / 2 : lastLeft ?? firstRight ?? seg.start + (seg.end - seg.start) * (pos / text.length);
+    // keep word strings consistent with the (possibly edited) halves
+    const lw = left.split(/\s+/);
+    const rw = right.split(/\s+/);
+    leftWords = leftWords.length === lw.length ? leftWords.map((w, i) => ({ ...w, word: lw[i] })) : undefined;
+    rightWords = rightWords.length === rw.length ? rightWords.map((w, i) => ({ ...w, word: rw[i] })) : undefined;
+  } else {
+    boundary = seg.start + (seg.end - seg.start) * (pos / Math.max(1, text.length));
+  }
+  boundary = Math.round(Math.min(Math.max(boundary, seg.start + 0.05), seg.end - 0.05) * 1000) / 1000;
+  const first: TranscriptSegment = { ...seg, text: left, end: boundary, words: leftWords };
+  const second: TranscriptSegment = { ...seg, text: right, start: boundary, words: rightWords };
+  segments.splice(index, 1, first, second);
   saveSegments(id, row, segments);
   return getRecording(id);
 }

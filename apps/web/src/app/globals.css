@@ -35,3 +35,79 @@ body {
 .animate-pulse-soft {
   animation: pulse-soft 1.6s ease-in-out infinite;
 }
+
+/* ---------- print ---------- */
+@media print {
+  @page {
+    margin: 15mm;
+  }
+  body {
+    background: #fff !important;
+    color: #000 !important;
+    font-size: 11pt;
+  }
+  header,
+  nav,
+  .fixed,
+  [role="dialog"],
+  [data-print="hide"],
+  select,
+  input[type="checkbox"],
+  input[type="range"] {
+    display: none !important;
+  }
+  main {
+    max-width: none !important;
+    padding: 0 !important;
+  }
+  .card {
+    border: 0 !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    background: transparent !important;
+  }
+  .grid {
+    display: block !important;
+  }
+  [data-print="aside"] {
+    margin-top: 12pt;
+    border-top: 1px solid #999 !important;
+    padding-top: 8pt !important;
+  }
+  [data-print="aside"] .input {
+    border: 0 !important;
+    padding: 0 !important;
+    background: transparent !important;
+  }
+  [data-print="aside"] button,
+  [data-print="aside"] textarea,
+  [data-print="aside"] h3 + textarea {
+    display: none !important;
+  }
+  section .group > select,
+  section .group > button {
+    display: none !important;
+  }
+  section .group > span:first-child {
+    color: #000 !important;
+  }
+  section [style*="border-color"] {
+    background: transparent !important;
+    border-left: 2pt solid #999 !important;
+    break-inside: avoid;
+    margin-bottom: 6pt;
+  }
+  mark,
+  .bg-yellow-100,
+  .bg-yellow-300 {
+    background: transparent !important;
+  }
+  a {
+    text-decoration: none;
+    color: inherit;
+  }
+  h1 {
+    font-size: 18pt;
+    margin-bottom: 4pt;
+  }
+}

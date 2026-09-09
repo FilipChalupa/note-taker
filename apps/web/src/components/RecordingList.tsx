@@ -47,9 +47,13 @@ export function RecordingList({ initial, tags, query }: { initial: RecordingPage
   const [dialog, setDialog] = useState<null | { kind: "tag"; action: "addTag" | "removeTag" } | { kind: "delete" }>(null);
   const [tagInput, setTagInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [cursor, setCursor] = useState<number>(-1);
   useEffect(() => {
     setData(initial);
-    setSelected(new Set());
+    // keep selection and keyboard cursor across refreshes (drop ids that disappeared, clamp the cursor)
+    const ids = new Set(initial.items.map((r) => r.id));
+    setSelected((s) => new Set([...s].filter((id) => ids.has(id))));
+    setCursor((c) => (c < 0 ? c : Math.min(c, initial.items.length - 1)));
   }, [initial]);
 
   const apiUrl = useMemo(() => {
@@ -114,6 +118,63 @@ export function RecordingList({ initial, tags, query }: { initial: RecordingPage
       setBusy(false);
     }
   };
+
+  // Keyboard navigation: arrows / j k move, Enter opens, Space selects, A all, F favorite, E archive, T tag, Delete, Esc
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && (/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) || target.isContentEditable)) return;
+      if (dialog || e.ctrlKey || e.metaKey || e.altKey) return;
+      const n = items.length;
+      if (n === 0) return;
+      const key = e.key;
+      const move = (d: number) => {
+        e.preventDefault();
+        setCursor((c) => Math.max(0, Math.min(n - 1, (c < 0 ? (d > 0 ? -1 : n) : c) + d)));
+      };
+      if (key === "ArrowDown" || key === "j") move(1);
+      else if (key === "ArrowUp" || key === "k") move(-1);
+      else if (key === "Home") {
+        e.preventDefault();
+        setCursor(0);
+      } else if (key === "End") {
+        e.preventDefault();
+        setCursor(n - 1);
+      } else if (key === "Enter" && cursor >= 0) {
+        e.preventDefault();
+        router.push(`/recordings/${items[cursor].id}`);
+      } else if ((key === " " || key === "x") && cursor >= 0) {
+        e.preventDefault();
+        toggle(items[cursor].id);
+      } else if (key === "a") {
+        e.preventDefault();
+        setSelected(allOnPage ? new Set() : new Set(items.map((r) => r.id)));
+      } else if (key === "Escape") {
+        setSelected(new Set());
+        setCursor(-1);
+      } else if (key === "f" && cursor >= 0) {
+        e.preventDefault();
+        void patchOne(items[cursor], { favorite: !items[cursor].favorite });
+      } else if (key === "e" && cursor >= 0) {
+        e.preventDefault();
+        void patchOne(items[cursor], { archived: !items[cursor].archived });
+      } else if (key === "t" && selected.size > 0) {
+        e.preventDefault();
+        setDialog({ kind: "tag", action: "addTag" });
+      } else if ((key === "Delete" || key === "Backspace") && selected.size > 0) {
+        e.preventDefault();
+        setDialog({ kind: "delete" });
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, cursor, selected, dialog]);
+
+  useEffect(() => {
+    if (cursor < 0) return;
+    document.querySelector<HTMLElement>(`[data-row-index="${cursor}"]`)?.scrollIntoView({ block: "nearest" });
+  }, [cursor]);
 
   const toggle = (id: string) =>
     setSelected((s) => {
@@ -260,11 +321,11 @@ export function RecordingList({ initial, tags, query }: { initial: RecordingPage
               <input type="checkbox" checked={allOnPage} onChange={(e) => setSelected(e.target.checked ? new Set(items.map((r) => r.id)) : new Set())} />
               {m.listx.selectAll}
             </label>
-            {items.map((rec) => {
+            {items.map((rec, i) => {
               const phase = phaseLabel(rec.phase, m);
               const err = errorLabel(rec.error, m);
               return (
-                <div key={rec.id} className={`card p-3 ${selected.has(rec.id) ? "ring-2 ring-blue-400" : ""}`}>
+                <div key={rec.id} data-row-index={i} className={`card p-3 ${selected.has(rec.id) ? "ring-2 ring-blue-400" : ""} ${cursor === i ? "outline outline-2 outline-blue-500" : ""}`}>
                   <div className="flex items-start gap-2">
                     <input type="checkbox" className="mt-1" checked={selected.has(rec.id)} onChange={() => toggle(rec.id)} aria-label={rec.title} />
                     <div className="min-w-0 flex-1">
@@ -322,11 +383,17 @@ export function RecordingList({ initial, tags, query }: { initial: RecordingPage
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                {items.map((rec) => {
+                {items.map((rec, i) => {
                   const phase = phaseLabel(rec.phase, m);
                   const err = errorLabel(rec.error, m);
                   return (
-                    <tr key={rec.id} className={`hover:bg-zinc-50 dark:hover:bg-zinc-800/40 ${selected.has(rec.id) ? "bg-blue-50/60 dark:bg-blue-950/30" : ""}`}>
+                    <tr
+                      key={rec.id}
+                      data-row-index={i}
+                      aria-current={cursor === i ? "true" : undefined}
+                      onClick={() => setCursor(i)}
+                      className={`hover:bg-zinc-50 dark:hover:bg-zinc-800/40 ${selected.has(rec.id) ? "bg-blue-50/60 dark:bg-blue-950/30" : ""} ${cursor === i ? "outline outline-2 -outline-offset-2 outline-blue-500" : ""}`}
+                    >
                       <td className="px-3 py-2.5">
                         <input type="checkbox" checked={selected.has(rec.id)} onChange={() => toggle(rec.id)} aria-label={rec.title} />
                       </td>
@@ -370,6 +437,7 @@ export function RecordingList({ initial, tags, query }: { initial: RecordingPage
             </table>
           </div>
 
+          <p className="mt-2 hidden text-xs text-zinc-400 md:block">{m.listx.keys}</p>
           {pages > 1 && (
             <div className="mt-3 flex items-center justify-center gap-3 text-sm" data-testid="pagination">
               <Link aria-disabled={data.page <= 1} className={`btn ${data.page <= 1 ? "pointer-events-none opacity-40" : ""}`} href={buildHref(query, { page: data.page - 1 })}>

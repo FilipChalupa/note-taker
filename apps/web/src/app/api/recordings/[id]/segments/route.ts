@@ -5,7 +5,7 @@ import { editSegments } from "@/lib/recordings";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** PATCH { edits: [{ index, text?, speaker? }] } */
+/** PATCH { edits: [{ index, text?, speaker?, start?, end? }] } */
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   let body: { edits?: SegmentEdit[] };
