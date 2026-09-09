@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import gc
 import logging
+import re
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -14,7 +15,16 @@ from .config import settings
 
 log = logging.getLogger("worker.pipeline")
 
-ProgressCb = Callable[[str, int], None]  # (status, progress 0-100)
+# (status, progress 0-100, fraction of the current phase 0-1 or None)
+ProgressCb = Callable[[str, int, Optional[float]], None]
+
+# Progress bands per phase (percent of the whole task)
+BAND = {"CONVERTING": (0, 10), "TRANSCRIBING": (10, 72), "DIARIZING": (72, 98)}
+
+
+def _band_pct(phase: str, fraction: float) -> int:
+    lo, hi = BAND[phase]
+    return int(round(lo + (hi - lo) * max(0.0, min(1.0, fraction))))
 
 FALLBACK_DIARIZATION_MODEL = "pyannote/speaker-diarization-3.1"
 _plda_patched = False
@@ -161,22 +171,33 @@ class Pipeline:
         min_speakers: Optional[int],
         max_speakers: Optional[int],
         progress: ProgressCb,
+        initial_prompt: Optional[str] = None,
     ) -> dict:
         import whisperx
 
-        progress("TRANSCRIBING", 20)
+        progress("TRANSCRIBING", _band_pct("TRANSCRIBING", 0.0), 0.0)
         asr = self.load_asr()
         audio = whisperx.load_audio(str(audio_path))
 
-        result = asr.transcribe(
-            audio,
-            batch_size=settings.batch_size,
-            language=language or None,
-        )
+        # Real progress: whisperx reports the fraction of VAD chunks transcribed so far.
+        # Transcription is ~85 % of this phase, alignment the rest.
+        def on_asr_progress(pct: float) -> None:
+            progress("TRANSCRIBING", _band_pct("TRANSCRIBING", 0.85 * pct / 100), 0.85 * pct / 100)
+
+        with _asr_prompt(asr, initial_prompt):
+            try:
+                result = asr.transcribe(
+                    audio,
+                    batch_size=settings.batch_size,
+                    language=language or None,
+                    progress_callback=on_asr_progress,
+                )
+            except TypeError:  # older whisperx without progress_callback
+                result = asr.transcribe(audio, batch_size=settings.batch_size, language=language or None)
         detected_language: str = result.get("language") or language or "unknown"
         log.info("Transcribed %s, language=%s, segments=%d",
                  audio_path.name, detected_language, len(result.get("segments", [])))
-        progress("TRANSCRIBING", 55)
+        progress("TRANSCRIBING", _band_pct("TRANSCRIBING", 0.85), 0.85)
 
         # Word-level alignment (skipped if no alignment model exists for the language)
         try:
@@ -187,12 +208,12 @@ class Pipeline:
             )
         except Exception as exc:  # noqa: BLE001
             log.warning("Alignment skipped (%s): %s", detected_language, exc)
-        progress("TRANSCRIBING", 70)
+        progress("TRANSCRIBING", _band_pct("TRANSCRIBING", 1.0), 1.0)
 
         diarized = False
         diarization_error: Optional[str] = None
         if settings.diarization_enabled and settings.hf_token:
-            progress("DIARIZING", 75)
+            progress("DIARIZING", _band_pct("DIARIZING", 0.0), 0.0)
             try:
                 diarizer = self._load_diarizer()
                 kwargs = {}
@@ -200,7 +221,10 @@ class Pipeline:
                     kwargs["min_speakers"] = min_speakers
                 if max_speakers:
                     kwargs["max_speakers"] = max_speakers
-                diarize_segments = diarizer(audio, **kwargs)
+                diarize_segments = _run_diarizer(
+                    diarizer, audio, kwargs,
+                    lambda f: progress("DIARIZING", _band_pct("DIARIZING", f), f),
+                )
                 result = whisperx.assign_word_speakers(diarize_segments, result)
                 diarized = True
                 self.diarization_error = None
@@ -215,9 +239,11 @@ class Pipeline:
             log.warning("DIARIZATION_ENABLED but HF_TOKEN missing - skipping diarization")
         else:
             diarization_error = "Diarization disabled (DIARIZATION_ENABLED=0)"
-        progress("DIARIZING", 95)
+        progress("DIARIZING", _band_pct("DIARIZING", 1.0), 1.0)
 
         segments = _postprocess_segments(result.get("segments", []), diarized)
+        if settings.hallucination_filter:
+            segments = _filter_hallucinations(segments)
         speakers = _ordered_speakers(segments)
 
         # Free per-file tensors (models stay resident)
@@ -252,17 +278,18 @@ class Pipeline:
 
         if not settings.diarization_enabled or not settings.hf_token:
             raise RuntimeError("Diarization is disabled or HF_TOKEN is not set")
-        progress("DIARIZING", 20)
+        progress("DIARIZING", 10, 0.0)
         audio = whisperx.load_audio(str(audio_path))
         diarizer = self._load_diarizer()
-        progress("DIARIZING", 40)
         kwargs = {}
         if min_speakers:
             kwargs["min_speakers"] = min_speakers
         if max_speakers:
             kwargs["max_speakers"] = max_speakers
-        diarize_segments = diarizer(audio, **kwargs)
-        progress("DIARIZING", 90)
+        diarize_segments = _run_diarizer(
+            diarizer, audio, kwargs, lambda f: progress("DIARIZING", int(10 + 85 * f), f)
+        )
+        progress("DIARIZING", 95, 1.0)
         # strip previous speaker labels so assignment starts clean
         clean = []
         for seg in segments:
@@ -279,6 +306,90 @@ class Pipeline:
 
 
 # --------------------------------------------------------------------- utils
+class _asr_prompt:
+    """Temporarily set Whisper's initial_prompt (glossary of names / terms) on the loaded model."""
+
+    def __init__(self, asr, prompt: Optional[str]) -> None:
+        self.asr = asr
+        self.prompt = (prompt or "").strip() or None
+        self._saved = None
+
+    def __enter__(self):
+        if self.prompt is None or not hasattr(self.asr, "options"):
+            return self
+        try:
+            from dataclasses import replace
+
+            self._saved = self.asr.options
+            self.asr.options = replace(self.asr.options, initial_prompt=self.prompt)
+            log.info("Using initial_prompt (%d chars)", len(self.prompt))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Could not apply initial_prompt: %s", exc)
+            self._saved = None
+        return self
+
+    def __exit__(self, *exc_info):
+        if self._saved is not None:
+            self.asr.options = self._saved
+        return False
+
+
+def _run_diarizer(diarizer, audio, kwargs: dict, on_fraction: Callable[[float], None]):
+    """Call the pyannote pipeline with real progress when the installed whisperx supports it."""
+    try:
+        return diarizer(audio, progress_callback=lambda pct: on_fraction(pct / 100), **kwargs)
+    except TypeError:
+        return diarizer(audio, **kwargs)
+
+
+# Phrases Whisper produces on silence / music instead of speech (normalized, lowercase)
+HALLUCINATED_PHRASES = {
+    "titulky vytvořil johnyx", "titulky vytvořil johny x", "překlad a titulky", "děkuji za pozornost",
+    "děkujeme za zhlédnutí", "titulky", "subtitles by the amara.org community", "thank you for watching",
+    "thanks for watching", "subtitles by", "like and subscribe", "please subscribe", "www.mooji.org",
+}
+
+
+def _norm_text(text: str) -> str:
+    return re.sub(r"[^\w\s]", "", text.lower()).strip()
+
+
+def _filter_hallucinations(segments: list[dict]) -> list[dict]:
+    """Drop typical Whisper artefacts:
+    - known credit-like phrases,
+    - the same short phrase repeated 3+ times in a row (keep the first occurrence),
+    - segments with an impossible speaking rate (many words in a fraction of a second).
+    """
+    out: list[dict] = []
+    run_text, run_len = "", 0
+    dropped = 0
+    for seg in segments:
+        norm = _norm_text(seg["text"])
+        words = len(norm.split())
+        dur = max(0.0, seg["end"] - seg["start"])
+        if norm in HALLUCINATED_PHRASES:
+            dropped += 1
+            continue
+        if words >= 6 and dur > 0 and words / dur > 8.0:
+            dropped += 1
+            continue
+        if norm == run_text and words <= 4:
+            run_len += 1
+            if run_len >= 3:
+                # third and later identical repeats are noise; also retro-drop the second one
+                if run_len == 3 and out and _norm_text(out[-1]["text"]) == norm:
+                    out.pop()
+                    dropped += 1
+                dropped += 1
+                continue
+        else:
+            run_text, run_len = norm, 1
+        out.append(seg)
+    if dropped:
+        log.info("Hallucination filter dropped %d segment(s)", dropped)
+    return out
+
+
 def _postprocess_segments(raw: list[dict], diarized: bool) -> list[dict]:
     out: list[dict] = []
     for seg in raw:

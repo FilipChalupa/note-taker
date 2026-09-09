@@ -60,6 +60,8 @@ class Task:
     phase_seconds: dict = field(default_factory=dict)  # measured wall time per finished phase
     kind: str = "transcribe"  # "transcribe" | "diarize" (speakers only, transcript supplied by client)
     segments_path: Optional[str] = None
+    initial_prompt: Optional[str] = None  # glossary / vocabulary hints for Whisper
+    phase_fraction: Optional[float] = None  # real progress of the current phase (0-1) when known
 
     @property
     def dir(self) -> Path:
@@ -141,7 +143,8 @@ class TaskQueue:
     # --------------------------------------------------------------- public
     def submit(self, original_filename: str, input_path: Path, language: Optional[str],
                min_speakers: Optional[int], max_speakers: Optional[int],
-               kind: str = "transcribe", segments: Optional[list] = None) -> Task:
+               kind: str = "transcribe", segments: Optional[list] = None,
+               initial_prompt: Optional[str] = None) -> Task:
         task = Task(
             id=uuid.uuid4().hex,
             original_filename=original_filename,
@@ -149,6 +152,7 @@ class TaskQueue:
             min_speakers=min_speakers,
             max_speakers=max_speakers,
             kind=kind,
+            initial_prompt=(initial_prompt or "").strip()[:1500] or None,
         )
         task.dir.mkdir(parents=True, exist_ok=True)
         final_input = task.dir / f"input{input_path.suffix.lower() or '.bin'}"
@@ -212,9 +216,10 @@ class TaskQueue:
         task.dir.mkdir(parents=True, exist_ok=True)
         (task.dir / "status.json").write_text(json.dumps(task.to_json(), indent=2))
 
-    def _update(self, task: Task, status: TaskStatus, progress: int) -> None:
+    def _update(self, task: Task, status: TaskStatus, progress: int, fraction: Optional[float] = None) -> None:
         with self._lock:
             if status != task.status:
+                task.phase_fraction = None
                 now_dt = datetime.now(timezone.utc)
                 if task.phase_started_at and not task.status.terminal and task.status != TaskStatus.QUEUED:
                     elapsed = (now_dt - datetime.fromisoformat(task.phase_started_at)).total_seconds()
@@ -224,6 +229,8 @@ class TaskQueue:
                 task.phase_started_at = now_dt.isoformat()
             task.status = status
             task.progress = max(task.progress, progress) if not status.terminal else progress
+            if fraction is not None:
+                task.phase_fraction = max(task.phase_fraction or 0.0, min(1.0, fraction))
             self._persist(task)
 
     # ------------------------------------------------------------- estimates
@@ -256,6 +263,11 @@ class TaskQueue:
                 elapsed = 0.0
                 if task.phase_started_at:
                     elapsed = (datetime.now(timezone.utc) - datetime.fromisoformat(task.phase_started_at)).total_seconds()
+                f = task.phase_fraction
+                if f is not None and f >= 0.05:
+                    # Real progress known: project this phase's total from elapsed / fraction
+                    projected = elapsed / f
+                    return max(0.0, (total - done - exp) + (projected - elapsed))
                 done += min(elapsed, exp * 0.97)
                 break
             done += task.phase_seconds.get(p, exp)
@@ -268,6 +280,8 @@ class TaskQueue:
         progress = task.progress
         if task.status.terminal:
             progress = 100 if task.status == TaskStatus.COMPLETED else task.progress
+        elif task.phase_fraction is not None:
+            progress = task.progress  # driven by real callbacks from the pipeline
         elif task.status != TaskStatus.QUEUED and total and remaining is not None:
             progress = int(round(3 + 95 * (1 - remaining / total)))
             progress = max(task.progress if task.status == TaskStatus.CONVERTING else 3, min(98, progress))
@@ -353,15 +367,16 @@ class TaskQueue:
         else:
             raise RuntimeError("Input file is missing (worker restarted before conversion finished)")
 
-        def progress(status: str, pct: int) -> None:
-            self._update(task, TaskStatus(status), pct)
+        def progress(status: str, pct: int, fraction: Optional[float] = None) -> None:
+            self._update(task, TaskStatus(status), pct, fraction)
 
         if task.kind == "diarize":
             segments = json.loads(Path(task.segments_path).read_text())  # type: ignore[arg-type]
             out = pipeline.diarize_only(dst, segments, task.min_speakers, task.max_speakers, progress)
             out["language"] = task.language or "unknown"
         else:
-            out = pipeline.run(dst, task.language, task.min_speakers, task.max_speakers, progress)
+            out = pipeline.run(dst, task.language, task.min_speakers, task.max_speakers, progress,
+                               initial_prompt=task.initial_prompt)
 
         result = {
             "task_id": task.id,

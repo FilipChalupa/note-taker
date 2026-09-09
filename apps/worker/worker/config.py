@@ -29,11 +29,14 @@ class Settings:
     port: int = _int("WORKER_PORT", 8000)
     api_key: str | None = os.getenv("WORKER_API_KEY") or None
 
-    model_name: str = os.getenv("WHISPER_MODEL", "large-v3-turbo")
+    model_name: str = os.getenv("WHISPER_MODEL", "large-v3")
     compute_type: str = os.getenv("COMPUTE_TYPE", "int8_float16")
     device: str = os.getenv("DEVICE", "cuda")
     batch_size: int = _int("BATCH_SIZE", 8)
     default_language: str | None = os.getenv("DEFAULT_LANGUAGE", "cs") or None
+
+    # Drop repeated / known-hallucinated segments (Whisper artefacts on silence and music)
+    hallucination_filter: bool = _bool("HALLUCINATION_FILTER", True)
 
     hf_token: str | None = os.getenv("HF_TOKEN") or None
     diarization_enabled: bool = _bool("DIARIZATION_ENABLED", True)

@@ -120,6 +120,7 @@ async def transcribe(
     language: Optional[str] = Form(default=None),
     min_speakers: Optional[int] = Form(default=None),
     max_speakers: Optional[int] = Form(default=None),
+    initial_prompt: Optional[str] = Form(default=None, description="Glossary / vocabulary hints for Whisper"),
 ) -> TranscribeAccepted:
     if min_speakers is not None and min_speakers < 1:
         raise HTTPException(400, "min_speakers must be >= 1")
@@ -150,6 +151,7 @@ async def transcribe(
         language=lang,
         min_speakers=min_speakers,
         max_speakers=max_speakers,
+        initial_prompt=initial_prompt,
     )
     return TranscribeAccepted(
         task_id=task.id,
