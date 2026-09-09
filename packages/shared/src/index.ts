@@ -24,6 +24,8 @@ export interface TranscribeParams {
   language?: string;
   min_speakers?: number;
   max_speakers?: number;
+  /** Glossary / vocabulary hints handed to Whisper as initial prompt. */
+  initial_prompt?: string;
 }
 
 /** Response of `POST /transcribe`. */
@@ -148,6 +150,8 @@ export interface RecordingSummary {
 }
 
 export interface RecordingDetail extends RecordingSummary {
+  /** Per-recording vocabulary hints (names, products...) given at upload. */
+  hints: string | null;
   /** Map of raw speaker id (SPEAKER_00) to user-provided display name. */
   speakerNames: Record<string, string>;
   speakers: string[];
@@ -156,6 +160,40 @@ export interface RecordingDetail extends RecordingSummary {
 }
 
 export type ExportFormat = "md" | "txt" | "srt" | "vtt";
+
+/** One transcript edit: change text and/or speaker of the segment at `index`. */
+export interface SegmentEdit {
+  index: number;
+  text?: string;
+  speaker?: string;
+}
+
+export interface SearchHit {
+  id: string;
+  title: string;
+  createdAt: string;
+  durationSec: number | null;
+  /** Snippet with matches wrapped in <mark>…</mark> (HTML-escaped otherwise). */
+  snippet: string;
+}
+
+export interface StorageInfo {
+  dataDir: string;
+  recordings: number;
+  /** bytes */
+  originalsBytes: number;
+  audioBytes: number;
+  databaseBytes: number;
+  totalBytes: number;
+  /** Free / total space of the volume holding DATA_DIR (null when unavailable). */
+  volumeFreeBytes: number | null;
+  volumeTotalBytes: number | null;
+}
+
+export interface AppSettings {
+  /** Global glossary of names and terms, one per line or comma-separated. */
+  glossary: string;
+}
 
 /** One entry of the worker queue as shown by the web app (`GET /api/worker/queue`). */
 export interface QueueItem {

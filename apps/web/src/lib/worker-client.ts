@@ -62,6 +62,7 @@ export const workerClient = {
     if (params.language) form.append("language", params.language);
     if (params.min_speakers) form.append("min_speakers", String(params.min_speakers));
     if (params.max_speakers) form.append("max_speakers", String(params.max_speakers));
+    if (params.initial_prompt) form.append("initial_prompt", params.initial_prompt);
     // Large uploads over slow links: give it 10 minutes
     return request<TranscribeAccepted>("/transcribe", { method: "POST", body: form }, 10 * 60_000);
   },

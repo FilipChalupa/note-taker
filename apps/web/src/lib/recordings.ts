@@ -5,9 +5,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { and, desc, eq, inArray } from "drizzle-orm";
-import type { RecordingDetail, RecordingSummary, TranscriptSegment } from "@note-taker/shared";
+import type { RecordingDetail, RecordingSummary, SearchHit, SegmentEdit, TranscriptSegment } from "@note-taker/shared";
 import { config, recordingDir } from "@/lib/config";
-import { db, schema } from "@/lib/db";
+import { db, rawDb, schema } from "@/lib/db";
+import { buildInitialPrompt } from "@/lib/settings";
 import type { RecordingRow } from "@/lib/db/schema";
 import { workerClient, WorkerError } from "@/lib/worker-client";
 
@@ -38,6 +39,7 @@ function toDetail(r: RecordingRow): RecordingDetail {
   const hasAudio = Boolean(r.audioPath && fs.existsSync(r.audioPath)) || fs.existsSync(r.originalPath);
   return {
     ...toSummary(r),
+    hints: r.hints ?? null,
     speakerNames: r.speakerNames ?? {},
     speakers: r.speakers ?? [],
     segments: r.segments ?? [],
@@ -55,6 +57,7 @@ export function listRecordings(): RecordingSummary[] {
       originalPath: recordings.originalPath,
       audioPath: recordings.audioPath,
       language: recordings.language,
+      hints: recordings.hints,
       minSpeakers: recordings.minSpeakers,
       maxSpeakers: recordings.maxSpeakers,
       status: recordings.status,
@@ -93,6 +96,7 @@ export function getRecordingRow(id: string): RecordingRow | null {
 export interface CreateRecordingInput {
   title: string;
   language: string;
+  hints?: string;
   minSpeakers?: number;
   maxSpeakers?: number;
   file: File;
@@ -118,6 +122,7 @@ export async function createRecording(input: CreateRecordingInput): Promise<Reco
       originalFilename: input.file.name || `upload${ext}`,
       originalPath,
       language: input.language,
+      hints: input.hints?.trim() || null,
       minSpeakers: input.minSpeakers ?? null,
       maxSpeakers: input.maxSpeakers ?? null,
       status: "QUEUED",
@@ -127,20 +132,21 @@ export async function createRecording(input: CreateRecordingInput): Promise<Reco
     })
     .run();
 
-  // Try to hand off immediately; if the worker is offline the poller retries later.
-  await dispatch(id);
+  // Hand off in the background so the upload response is immediate; the poller retries if needed.
+  void dispatch(id).catch((err) => console.error(`[recordings] dispatch failed for ${id}:`, (err as Error).message));
   return getRecording(id)!;
 }
 
 // --------------------------------------------------------------- updates
 export function updateRecording(
   id: string,
-  patch: { title?: string; speakerNames?: Record<string, string> },
+  patch: { title?: string; speakerNames?: Record<string, string>; hints?: string | null },
 ): RecordingDetail | null {
   const row = getRecordingRow(id);
   if (!row) return null;
   const values: Partial<RecordingRow> = { updatedAt: now() };
   if (typeof patch.title === "string" && patch.title.trim()) values.title = patch.title.trim().slice(0, 200);
+  if (patch.hints !== undefined) values.hints = patch.hints?.trim().slice(0, 2000) || null;
   if (patch.speakerNames && typeof patch.speakerNames === "object") {
     const cleaned: Record<string, string> = {};
     for (const [k, v] of Object.entries(patch.speakerNames)) {
@@ -149,13 +155,110 @@ export function updateRecording(
     values.speakerNames = cleaned;
   }
   db.update(recordings).set(values).where(eq(recordings.id, id)).run();
+  if (values.title) indexRecording(id);
   return getRecording(id);
+}
+
+/** Apply text / speaker edits to individual segments. */
+export function editSegments(id: string, edits: SegmentEdit[]): RecordingDetail | null {
+  const row = getRecordingRow(id);
+  if (!row) return null;
+  const segments = [...(row.segments ?? [])];
+  for (const e of edits) {
+    const seg = segments[e.index];
+    if (!seg) continue;
+    const next: TranscriptSegment = { ...seg };
+    if (typeof e.text === "string") {
+      const text = e.text.replace(/\s+/g, " ").trim();
+      if (text && text !== seg.text) {
+        next.text = text;
+        // Keep word timings only when the word count is unchanged (pure corrections);
+        // otherwise fall back to segment-level highlighting.
+        const words = text.split(" ");
+        next.words = seg.words && seg.words.length === words.length ? seg.words.map((w, i) => ({ ...w, word: words[i] })) : undefined;
+      }
+    }
+    if (typeof e.speaker === "string" && /^[A-Za-z0-9_]{1,40}$/.test(e.speaker)) {
+      next.speaker = e.speaker;
+      next.words = next.words?.map((w) => ({ ...w, speaker: e.speaker }));
+    }
+    segments[e.index] = next;
+  }
+  saveSegments(id, row, segments);
+  return getRecording(id);
+}
+
+/** Merge speaker `from` into `into` across the whole transcript. */
+export function mergeSpeakers(id: string, from: string, into: string): RecordingDetail | null {
+  const row = getRecordingRow(id);
+  if (!row || from === into) return row ? getRecording(id) : null;
+  const segments = (row.segments ?? []).map((seg) =>
+    seg.speaker === from
+      ? { ...seg, speaker: into, words: seg.words?.map((w) => (w.speaker === from ? { ...w, speaker: into } : w)) }
+      : seg,
+  );
+  const names = { ...(row.speakerNames ?? {}) };
+  if (!names[into] && names[from]) names[into] = names[from];
+  delete names[from];
+  saveSegments(id, row, segments, names);
+  return getRecording(id);
+}
+
+function saveSegments(id: string, row: RecordingRow, segments: TranscriptSegment[], speakerNames?: Record<string, string>) {
+  // Speaker order: keep existing order, append newly introduced ids, drop unused ones
+  const used = new Set(segments.map((s) => s.speaker));
+  const speakers = [...(row.speakers ?? []).filter((s) => used.has(s)), ...[...used].filter((s) => !(row.speakers ?? []).includes(s))];
+  db.update(recordings)
+    .set({
+      segments,
+      speakers,
+      speakerCount: speakers.filter((s) => s !== "UNKNOWN").length,
+      ...(speakerNames ? { speakerNames } : {}),
+      updatedAt: now(),
+    })
+    .where(eq(recordings.id, id))
+    .run();
+  indexRecording(id);
+}
+
+// ------------------------------------------------------------- full text
+export function indexRecording(id: string): void {
+  const row = getRecordingRow(id);
+  const sql = rawDb();
+  sql.prepare("DELETE FROM recordings_fts WHERE recording_id = ?").run(id);
+  if (!row || row.status !== "COMPLETED") return;
+  const body = (row.segments ?? []).map((s) => s.text).join(" ");
+  sql.prepare("INSERT INTO recordings_fts (recording_id, title, body) VALUES (?, ?, ?)").run(id, row.title, body);
+}
+
+/** Full-text search over titles and transcripts. Terms are AND-ed, each matched as a prefix. */
+export function searchRecordings(query: string, limit = 30): SearchHit[] {
+  const terms = query
+    .split(/\s+/)
+    .map((t) => t.replace(/["*()]/g, "").trim())
+    .filter((t) => t.length > 0)
+    .slice(0, 8);
+  if (terms.length === 0) return [];
+  const match = terms.map((t) => `"${t}"*`).join(" ");
+  const rows = rawDb()
+    .prepare(
+      `SELECT f.recording_id AS id, r.title, r.created_at AS createdAt, r.duration_sec AS durationSec,
+              snippet(recordings_fts, 2, '\u0001', '\u0002', '…', 18) AS snippet
+         FROM recordings_fts f JOIN recordings r ON r.id = f.recording_id
+        WHERE recordings_fts MATCH ?
+        ORDER BY bm25(recordings_fts, 5.0, 1.0)
+        LIMIT ?`,
+    )
+    .all(match, limit) as SearchHit[];
+  const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return rows.map((r) => ({ ...r, snippet: esc(r.snippet).replace(/\u0001/g, "<mark>").replace(/\u0002/g, "</mark>") }));
 }
 
 export async function deleteRecording(id: string): Promise<boolean> {
   const row = getRecordingRow(id);
   if (!row) return false;
   db.delete(recordings).where(eq(recordings.id, id)).run();
+  rawDb().prepare("DELETE FROM recordings_fts WHERE recording_id = ?").run(id);
   fs.rmSync(recordingDir(id), { recursive: true, force: true });
   if (row.workerTaskId) void workerClient.deleteTask(row.workerTaskId).catch(() => {});
   return true;
@@ -188,7 +291,8 @@ export async function retryRecording(id: string): Promise<RecordingDetail | null
     })
     .where(eq(recordings.id, id))
     .run();
-  await dispatch(id);
+  indexRecording(id);
+  void dispatch(id).catch(() => {});
   return getRecording(id);
 }
 
@@ -224,7 +328,7 @@ export async function rediarizeRecording(
     })
     .where(eq(recordings.id, id))
     .run();
-  await dispatch(id);
+  void dispatch(id).catch(() => {});
   return { recording: getRecording(id)! };
 }
 
@@ -247,6 +351,7 @@ export async function dispatch(id: string): Promise<void> {
         language: row.language === "auto" ? undefined : row.language,
         min_speakers: row.minSpeakers ?? undefined,
         max_speakers: row.maxSpeakers ?? undefined,
+        initial_prompt: buildInitialPrompt(row.hints),
       });
     }
     db.update(recordings)
@@ -409,6 +514,8 @@ export async function syncRecording(id: string): Promise<void> {
     })
     .where(eq(recordings.id, id))
     .run();
+
+  indexRecording(id);
 
   // Free space on the worker; it keeps its own copy only as a TTL cache.
   void workerClient.deleteTask(row.workerTaskId).catch(() => {});

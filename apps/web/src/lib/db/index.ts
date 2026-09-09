@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS recordings (
   original_path TEXT NOT NULL,
   audio_path TEXT,
   language TEXT NOT NULL DEFAULT 'cs',
+  hints TEXT,
   min_speakers INTEGER,
   max_speakers INTEGER,
   status TEXT NOT NULL DEFAULT 'QUEUED',
@@ -37,6 +38,22 @@ CREATE TABLE IF NOT EXISTS recordings (
 );
 CREATE INDEX IF NOT EXISTS recordings_status_idx ON recordings(status);
 CREATE INDEX IF NOT EXISTS recordings_created_idx ON recordings(created_at DESC);
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+`;
+
+// Full-text index over transcripts (title + all segment text). Diacritics are folded so "priorita"
+// also finds "priorít"; body is rebuilt from the recordings table whenever a transcript changes.
+const FTS_DDL = `
+CREATE VIRTUAL TABLE IF NOT EXISTS recordings_fts USING fts5(
+  recording_id UNINDEXED,
+  title,
+  body,
+  tokenize = 'unicode61 remove_diacritics 2'
+);
 `;
 
 function open(): Db {
@@ -51,6 +68,23 @@ function open(): Db {
   const cols = new Set((sqlite.prepare("PRAGMA table_info(recordings)").all() as { name: string }[]).map((c) => c.name));
   if (!cols.has("warning")) sqlite.exec("ALTER TABLE recordings ADD COLUMN warning TEXT");
   if (!cols.has("task_kind")) sqlite.exec("ALTER TABLE recordings ADD COLUMN task_kind TEXT NOT NULL DEFAULT 'transcribe'");
+  if (!cols.has("hints")) sqlite.exec("ALTER TABLE recordings ADD COLUMN hints TEXT");
+  const hadFts = sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='recordings_fts'").get();
+  sqlite.exec(FTS_DDL);
+  if (!hadFts) {
+    // First run with FTS: index existing transcripts
+    const rows = sqlite.prepare("SELECT id, title, segments FROM recordings WHERE status = 'COMPLETED'").all() as { id: string; title: string; segments: string }[];
+    const ins = sqlite.prepare("INSERT INTO recordings_fts (recording_id, title, body) VALUES (?, ?, ?)");
+    for (const r of rows) {
+      let body = "";
+      try {
+        body = (JSON.parse(r.segments) as { text: string }[]).map((x) => x.text).join(" ");
+      } catch {
+        /* ignore */
+      }
+      ins.run(r.id, r.title, body);
+    }
+  }
   return drizzle(sqlite, { schema });
 }
 
@@ -58,3 +92,8 @@ function open(): Db {
 const g = globalThis as unknown as { __noteTakerDb?: Db };
 export const db: Db = g.__noteTakerDb ?? (g.__noteTakerDb = open());
 export { schema };
+
+/** Raw better-sqlite3 handle for FTS queries that drizzle cannot express. */
+export function rawDb(): Database.Database {
+  return (db as unknown as { $client: Database.Database }).$client;
+}

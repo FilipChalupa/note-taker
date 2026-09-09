@@ -9,6 +9,8 @@ export const recordings = sqliteTable("recordings", {
   /** Normalized 16 kHz mono audio downloaded from the worker after completion */
   audioPath: text("audio_path"),
   language: text("language").notNull().default("cs"),
+  /** Vocabulary hints for this recording (names, products, jargon) */
+  hints: text("hints"),
   minSpeakers: integer("min_speakers"),
   maxSpeakers: integer("max_speakers"),
 
@@ -33,6 +35,12 @@ export const recordings = sqliteTable("recordings", {
   segments: text("segments", { mode: "json" }).$type<TranscriptSegment[]>().notNull().default([]),
 
   createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+});
+
+export const settings = sqliteTable("settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
   updatedAt: text("updated_at").notNull(),
 });
 

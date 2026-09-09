@@ -33,6 +33,7 @@ export async function POST(req: Request) {
   }
 
   const title = String(form.get("title") ?? "");
+  const hints = String(form.get("hints") ?? "").slice(0, 2000);
   const language = String(form.get("language") ?? config.defaultLanguage).toLowerCase() || config.defaultLanguage;
   const toInt = (v: FormDataEntryValue | null) => {
     const n = Number(v);
@@ -44,6 +45,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "SPEAKER_RANGE" }, { status: 400 });
   }
 
-  const rec = await createRecording({ title, language, minSpeakers, maxSpeakers, file });
+  const rec = await createRecording({ title, language, hints, minSpeakers, maxSpeakers, file });
   return NextResponse.json(rec, { status: 201 });
 }
