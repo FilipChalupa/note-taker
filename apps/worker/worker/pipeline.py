@@ -212,6 +212,7 @@ class Pipeline:
 
         diarized = False
         diarization_error: Optional[str] = None
+        speaker_embeddings: Optional[dict[str, list[float]]] = None
         if settings.diarization_enabled and settings.hf_token:
             progress("DIARIZING", _band_pct("DIARIZING", 0.0), 0.0)
             try:
@@ -221,7 +222,7 @@ class Pipeline:
                     kwargs["min_speakers"] = min_speakers
                 if max_speakers:
                     kwargs["max_speakers"] = max_speakers
-                diarize_segments = _run_diarizer(
+                diarize_segments, speaker_embeddings = _run_diarizer(
                     diarizer, audio, kwargs,
                     lambda f: progress("DIARIZING", _band_pct("DIARIZING", f), f),
                 )
@@ -262,6 +263,7 @@ class Pipeline:
             "diarization_error": diarization_error,
             "speakers": speakers,
             "segments": segments,
+            "speaker_embeddings": speaker_embeddings,
         }
 
 
@@ -286,7 +288,7 @@ class Pipeline:
             kwargs["min_speakers"] = min_speakers
         if max_speakers:
             kwargs["max_speakers"] = max_speakers
-        diarize_segments = _run_diarizer(
+        diarize_segments, speaker_embeddings = _run_diarizer(
             diarizer, audio, kwargs, lambda f: progress("DIARIZING", int(10 + 85 * f), f)
         )
         progress("DIARIZING", 95, 1.0)
@@ -302,7 +304,8 @@ class Pipeline:
         out = _postprocess_segments(result.get("segments", []), True)
         del audio
         gc.collect()
-        return {"diarized": True, "diarization_error": None, "speakers": _ordered_speakers(out), "segments": out}
+        return {"diarized": True, "diarization_error": None, "speakers": _ordered_speakers(out), "segments": out,
+                "speaker_embeddings": speaker_embeddings}
 
 
 # --------------------------------------------------------------------- utils
@@ -335,11 +338,38 @@ class _asr_prompt:
 
 
 def _run_diarizer(diarizer, audio, kwargs: dict, on_fraction: Callable[[float], None]):
-    """Call the pyannote pipeline with real progress when the installed whisperx supports it."""
+    """Call the pyannote pipeline; returns (diarization, embeddings-or-None).
+
+    Uses real progress and per-speaker embeddings when the installed whisperx supports them.
+    """
     try:
-        return diarizer(audio, progress_callback=lambda pct: on_fraction(pct / 100), **kwargs)
+        out = diarizer(audio, progress_callback=lambda pct: on_fraction(pct / 100), return_embeddings=True, **kwargs)
     except TypeError:
-        return diarizer(audio, **kwargs)
+        try:
+            out = diarizer(audio, return_embeddings=True, **kwargs)
+        except TypeError:
+            return diarizer(audio, **kwargs), None
+    if isinstance(out, tuple):
+        diarization, embeddings = out
+        return diarization, _clean_embeddings(embeddings)
+    return out, None
+
+
+def _clean_embeddings(embeddings) -> Optional[dict[str, list[float]]]:
+    """Plain JSON-able {speaker: [float]} (drops NaN vectors pyannote emits for empty clusters)."""
+    if not embeddings:
+        return None
+    import math
+
+    out: dict[str, list[float]] = {}
+    for speaker, vec in embeddings.items():
+        try:
+            values = [float(v) for v in (vec.tolist() if hasattr(vec, "tolist") else vec)]
+        except (TypeError, ValueError):
+            continue
+        if values and not any(math.isnan(v) for v in values):
+            out[str(speaker)] = [round(v, 5) for v in values]
+    return out or None
 
 
 # Phrases Whisper produces on silence / music instead of speech (normalized, lowercase)

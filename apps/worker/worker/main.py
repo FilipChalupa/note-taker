@@ -12,6 +12,7 @@ from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadF
 from fastapi.responses import FileResponse, JSONResponse
 
 from . import __version__
+from . import gpu as gpu_telemetry
 from .audio import ensure_ffmpeg
 from .config import settings
 from .models import (CudaInfo, Health, QueueInfo, TaskResult, TaskStatus,
@@ -99,6 +100,14 @@ def health() -> Health:
             )
     except Exception as exc:  # noqa: BLE001
         log.debug("CUDA probe failed: %s", exc)
+    telemetry = gpu_telemetry.query()
+    if telemetry:
+        cuda.utilization_pct = telemetry["utilization_pct"]
+        cuda.temperature_c = telemetry["temperature_c"]
+        cuda.power_w = telemetry["power_w"]
+        cuda.memory_used_mb = telemetry["memory_used_mb"]
+        if cuda.vram_total_mb is None and telemetry["memory_total_mb"]:
+            cuda.vram_total_mb = telemetry["memory_total_mb"]
 
     return Health(
         ok=True,

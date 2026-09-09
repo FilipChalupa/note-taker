@@ -387,6 +387,7 @@ class TaskQueue:
             "diarized": out["diarized"],
             "diarization_error": out.get("diarization_error"),
             "speakers": out["speakers"],
+            "speaker_embeddings": out.get("speaker_embeddings"),
             "segments": out["segments"],
             "audio_url": f"/tasks/{task.id}/audio",
             "audio_mime": "audio/mpeg" if ext == "mp3" else "audio/wav",

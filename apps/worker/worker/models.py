@@ -74,6 +74,8 @@ class TaskResult(BaseModel):
     diarization_error: Optional[str] = None
     speakers: list[str]
     segments: list[Segment]
+    # Per-speaker voice embeddings from the diarization model (for recognizing known voices)
+    speaker_embeddings: Optional[dict[str, list[float]]] = None
     audio_url: str
     audio_mime: str
 
@@ -84,6 +86,11 @@ class CudaInfo(BaseModel):
     vram_total_mb: Optional[int] = None
     vram_free_mb: Optional[int] = None
     vram_used_mb: Optional[int] = None
+    # Live telemetry from nvidia-smi (whole GPU, not just this process)
+    utilization_pct: Optional[int] = None
+    temperature_c: Optional[int] = None
+    power_w: Optional[float] = None
+    memory_used_mb: Optional[int] = None
 
 
 class QueueInfo(BaseModel):
