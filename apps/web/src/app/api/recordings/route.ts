@@ -1,15 +1,30 @@
 import { NextResponse } from "next/server";
 import { config, SUPPORTED_MEDIA } from "@/lib/config";
-import { createRecording, listRecordings } from "@/lib/recordings";
+import type { RecordingSort, RecordingView } from "@note-taker/shared";
+import { createRecording, listRecordings, pageRecordings } from "@/lib/recordings";
 import { ensurePollerStarted } from "@/lib/poller";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const SORTS: RecordingSort[] = ["newest", "oldest", "title", "longest", "shortest"];
+const VIEWS: RecordingView[] = ["active", "favorites", "archived", "all"];
+
+/** GET /api/recordings?tag=&view=&sort=  -> array; add &page=N (&pageSize=) to get { items, total, page, pageSize } */
 export async function GET(req: Request) {
   ensurePollerStarted();
-  const tag = new URL(req.url).searchParams.get("tag");
-  return NextResponse.json(listRecordings(tag ? { tag } : undefined));
+  const p = new URL(req.url).searchParams;
+  const sort = p.get("sort") as RecordingSort | null;
+  const view = p.get("view") as RecordingView | null;
+  const query = {
+    tag: p.get("tag") ?? undefined,
+    sort: sort && SORTS.includes(sort) ? sort : undefined,
+    view: view && VIEWS.includes(view) ? view : undefined,
+  };
+  if (p.get("page")) {
+    return NextResponse.json(pageRecordings({ ...query, page: Number(p.get("page")) || 1, pageSize: Number(p.get("pageSize")) || undefined }));
+  }
+  return NextResponse.json(listRecordings(query));
 }
 
 

@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS recordings (
   hints TEXT,
   tags TEXT NOT NULL DEFAULT '[]',
   notes TEXT,
+  favorite INTEGER NOT NULL DEFAULT 0,
+  archived INTEGER NOT NULL DEFAULT 0,
   min_speakers INTEGER,
   max_speakers INTEGER,
   status TEXT NOT NULL DEFAULT 'QUEUED',
@@ -89,6 +91,8 @@ function open(): Db {
   if (!cols.has("hints")) sqlite.exec("ALTER TABLE recordings ADD COLUMN hints TEXT");
   if (!cols.has("tags")) sqlite.exec("ALTER TABLE recordings ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'");
   if (!cols.has("notes")) sqlite.exec("ALTER TABLE recordings ADD COLUMN notes TEXT");
+  if (!cols.has("favorite")) sqlite.exec("ALTER TABLE recordings ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0");
+  if (!cols.has("archived")) sqlite.exec("ALTER TABLE recordings ADD COLUMN archived INTEGER NOT NULL DEFAULT 0");
   if (!cols.has("speaker_embeddings")) sqlite.exec("ALTER TABLE recordings ADD COLUMN speaker_embeddings TEXT");
   if (!cols.has("speaker_suggestions")) sqlite.exec("ALTER TABLE recordings ADD COLUMN speaker_suggestions TEXT NOT NULL DEFAULT '{}'");
   const hadFts = sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='recordings_fts'").get();

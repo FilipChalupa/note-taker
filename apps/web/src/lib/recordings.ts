@@ -5,7 +5,17 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { and, desc, eq, inArray } from "drizzle-orm";
-import type { RecordingDetail, RecordingSummary, SearchHit, SegmentEdit, TagCount, TranscriptSegment } from "@note-taker/shared";
+import type {
+  BulkAction,
+  RecordingDetail,
+  RecordingListQuery,
+  RecordingPage,
+  RecordingSummary,
+  SearchHit,
+  SegmentEdit,
+  TagCount,
+  TranscriptSegment,
+} from "@note-taker/shared";
 import { config, recordingDir } from "@/lib/config";
 import { db, rawDb, schema } from "@/lib/db";
 import { buildInitialPrompt } from "@/lib/settings";
@@ -33,6 +43,8 @@ function toSummary(r: Omit<RecordingRow, "segments">): RecordingSummary {
     error: r.error,
     warning: r.warning ?? null,
     tags: r.tags ?? [],
+    favorite: Boolean(r.favorite),
+    archived: Boolean(r.archived),
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
   };
@@ -54,8 +66,8 @@ function toDetail(r: RecordingRow): RecordingDetail {
 }
 
 // ---------------------------------------------------------------- queries
-export function listRecordings(filter?: { tag?: string }): RecordingSummary[] {
-  const rows = db
+function selectSummaryRows() {
+  return db
     .select({
       id: recordings.id,
       title: recordings.title,
@@ -66,6 +78,8 @@ export function listRecordings(filter?: { tag?: string }): RecordingSummary[] {
       hints: recordings.hints,
       tags: recordings.tags,
       notes: recordings.notes,
+      favorite: recordings.favorite,
+      archived: recordings.archived,
       minSpeakers: recordings.minSpeakers,
       maxSpeakers: recordings.maxSpeakers,
       status: recordings.status,
@@ -90,8 +104,69 @@ export function listRecordings(filter?: { tag?: string }): RecordingSummary[] {
     .from(recordings)
     .orderBy(desc(recordings.createdAt))
     .all();
-  const tag = filter?.tag?.trim().toLowerCase();
-  return rows.filter((r) => !tag || (r.tags ?? []).some((t) => t.toLowerCase() === tag)).map(toSummary);
+}
+
+const collator = new Intl.Collator("cs", { sensitivity: "base", numeric: true });
+
+/** Filtered + sorted summaries. Archived recordings are hidden unless the view asks for them. */
+export function listRecordings(query: RecordingListQuery = {}): RecordingSummary[] {
+  const tag = query.tag?.trim().toLowerCase();
+  const view = query.view ?? "active";
+  let rows = selectSummaryRows().filter((r) => {
+    if (tag && !(r.tags ?? []).some((t) => t.toLowerCase() === tag)) return false;
+    if (view === "active") return !r.archived;
+    if (view === "favorites") return r.favorite && !r.archived;
+    if (view === "archived") return r.archived;
+    return true;
+  });
+  const sort = query.sort ?? "newest";
+  rows = [...rows].sort((a, b) => {
+    switch (sort) {
+      case "oldest":
+        return a.createdAt.localeCompare(b.createdAt);
+      case "title":
+        return collator.compare(a.title, b.title);
+      case "longest":
+        return (b.durationSec ?? -1) - (a.durationSec ?? -1);
+      case "shortest":
+        return (a.durationSec ?? Infinity) - (b.durationSec ?? Infinity);
+      default:
+        return b.createdAt.localeCompare(a.createdAt);
+    }
+  });
+  return rows.map(toSummary);
+}
+
+export function pageRecordings(query: RecordingListQuery = {}): RecordingPage {
+  const all = listRecordings(query);
+  const pageSize = Math.min(200, Math.max(5, query.pageSize ?? 25));
+  const pages = Math.max(1, Math.ceil(all.length / pageSize));
+  const page = Math.min(pages, Math.max(1, query.page ?? 1));
+  return { items: all.slice((page - 1) * pageSize, page * pageSize), total: all.length, page, pageSize };
+}
+
+/** Apply one action to many recordings; returns the number affected. */
+export async function bulkAction(ids: string[], action: BulkAction, tag?: string): Promise<number> {
+  let n = 0;
+  for (const id of ids) {
+    const row = getRecordingRow(id);
+    if (!row) continue;
+    if (action === "delete") {
+      if (await deleteRecording(id)) n += 1;
+      continue;
+    }
+    const values: Partial<RecordingRow> = { updatedAt: now() };
+    if (action === "archive") values.archived = true;
+    if (action === "unarchive") values.archived = false;
+    if (action === "favorite") values.favorite = true;
+    if (action === "unfavorite") values.favorite = false;
+    if (action === "addTag" && tag) values.tags = normalizeTags([...(row.tags ?? []), tag]);
+    if (action === "removeTag" && tag) values.tags = (row.tags ?? []).filter((t) => t.toLowerCase() !== tag.trim().toLowerCase());
+    db.update(recordings).set(values).where(eq(recordings.id, id)).run();
+    if (values.tags) indexRecording(id);
+    n += 1;
+  }
+  return n;
 }
 
 /** Distinct tags with usage counts, most used first. */
@@ -133,6 +208,7 @@ export interface CreateRecordingInput {
   language: string;
   hints?: string;
   tags?: string | string[];
+  notes?: string;
   minSpeakers?: number;
   maxSpeakers?: number;
   file: File;
@@ -180,6 +256,7 @@ function insertRecording(input: {
   language: string;
   hints?: string;
   tags?: string | string[];
+  notes?: string;
   minSpeakers?: number;
   maxSpeakers?: number;
 }): RecordingDetail {
@@ -194,6 +271,7 @@ function insertRecording(input: {
       language: input.language,
       hints: input.hints?.trim() || null,
       tags: normalizeTags(input.tags),
+      notes: input.notes?.trim().slice(0, 20_000) || null,
       minSpeakers: input.minSpeakers ?? null,
       maxSpeakers: input.maxSpeakers ?? null,
       status: "QUEUED",
@@ -211,11 +289,21 @@ function insertRecording(input: {
 // --------------------------------------------------------------- updates
 export function updateRecording(
   id: string,
-  patch: { title?: string; speakerNames?: Record<string, string>; hints?: string | null; tags?: string | string[]; notes?: string | null },
+  patch: {
+    title?: string;
+    speakerNames?: Record<string, string>;
+    hints?: string | null;
+    tags?: string | string[];
+    notes?: string | null;
+    favorite?: boolean;
+    archived?: boolean;
+  },
 ): RecordingDetail | null {
   const row = getRecordingRow(id);
   if (!row) return null;
   const values: Partial<RecordingRow> = { updatedAt: now() };
+  if (typeof patch.favorite === "boolean") values.favorite = patch.favorite;
+  if (typeof patch.archived === "boolean") values.archived = patch.archived;
   if (typeof patch.title === "string" && patch.title.trim()) values.title = patch.title.trim().slice(0, 200);
   if (patch.hints !== undefined) values.hints = patch.hints?.trim().slice(0, 2000) || null;
   if (patch.tags !== undefined) values.tags = normalizeTags(patch.tags);

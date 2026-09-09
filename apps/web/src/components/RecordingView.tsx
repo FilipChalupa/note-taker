@@ -120,6 +120,22 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
 
   // -------------------------------------------------------------- transcript
   const turns = useMemo(() => groupTurns(rec.segments), [rec.segments]);
+  const stats = useMemo(() => {
+    const per = new Map<string, { seconds: number; turns: number; words: number }>();
+    let longest = 0;
+    for (const t of turns) {
+      const cur = per.get(t.speaker) ?? { seconds: 0, turns: 0, words: 0 };
+      const secs = t.segments.reduce((a, sg) => a + Math.max(0, sg.end - sg.start), 0);
+      cur.seconds += secs;
+      cur.turns += 1;
+      cur.words += t.segments.reduce((a, sg) => a + sg.text.split(/\s+/).filter(Boolean).length, 0);
+      per.set(t.speaker, cur);
+      longest = Math.max(longest, secs);
+    }
+    const total = [...per.values()].reduce((a, v) => a + v.seconds, 0) || 1;
+    const rows = rec.speakers.filter((id) => per.has(id)).map((id) => ({ speaker: id, ...per.get(id)!, share: per.get(id)!.seconds / total }));
+    return { rows, totalTurns: Math.max(0, turns.length - 1), longest };
+  }, [turns, rec.speakers]);
   const activeIndex = useMemo(() => {
     const segs = rec.segments;
     if (segs.length === 0) return -1;
@@ -205,6 +221,20 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
   const [tagsDraft, setTagsDraft] = useState(rec.tags.join(", "));
   const [notesDraft, setNotesDraft] = useState(rec.notes ?? "");
   const [notesSaved, setNotesSaved] = useState(false);
+  const [glossarySuggest, setGlossarySuggest] = useState<string[] | null>(null);
+  const [glossaryAdded, setGlossaryAdded] = useState(false);
+  const glossaryRef = useRef<Set<string> | null>(null);
+  const knownGlossary = async () => {
+    if (!glossaryRef.current) {
+      try {
+        const g = ((await (await fetch("/api/settings")).json()) as { glossary: string }).glossary;
+        glossaryRef.current = new Set(g.split(/[\n,;]+/).map((t) => t.trim().toLowerCase()).filter(Boolean));
+      } catch {
+        glossaryRef.current = new Set();
+      }
+    }
+    return glossaryRef.current;
+  };
   useEffect(() => setTagsDraft(rec.tags.join(", ")), [rec.tags]);
   useEffect(() => setNotesDraft(rec.notes ?? ""), [rec.notes]);
   const [editingTitle, setEditingTitle] = useState(false);
@@ -239,7 +269,15 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
     setTimeout(() => setNotesSaved(false), 1500);
   };
 
-  const patch = async (body: { title?: string; speakerNames?: Record<string, string>; hints?: string | null; tags?: string; notes?: string | null }) => {
+  const patch = async (body: {
+    title?: string;
+    speakerNames?: Record<string, string>;
+    hints?: string | null;
+    tags?: string;
+    notes?: string | null;
+    favorite?: boolean;
+    archived?: boolean;
+  }) => {
     setSaving(true);
     try {
       const r = await fetch(`/api/recordings/${rec.id}`, {
@@ -346,8 +384,27 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
     if (editingIndex === null) return;
     const index = editingIndex;
     const text = editDraft.trim();
+    const before = rec.segments[index]?.text ?? "";
     setEditingIndex(null);
-    if (text && text !== rec.segments[index]?.text) await applyEdits([{ index, text }]);
+    if (!text || text === before) return;
+    await applyEdits([{ index, text }]);
+    // Words that appear only after the correction are glossary candidates ("Kadlova" -> "Karlova")
+    const tokens = (t: string) => t.split(/\s+/).map((w) => w.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "")).filter((w) => w.length >= 3 && /\p{L}/u.test(w));
+    const old = new Set(tokens(before).map((w) => w.toLowerCase()));
+    const known = await knownGlossary();
+    const candidates = [...new Set(tokens(text))].filter((w) => !old.has(w.toLowerCase()) && !known.has(w.toLowerCase())).slice(0, 3);
+    setGlossaryAdded(false);
+    setGlossarySuggest(candidates.length ? candidates : null);
+  };
+
+  const addToGlossary = async (terms: string[]) => {
+    const r = await fetch("/api/settings/glossary", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ terms }) });
+    if (r.ok) {
+      for (const t of terms) glossaryRef.current?.add(t.toLowerCase());
+      setGlossarySuggest(null);
+      setGlossaryAdded(true);
+      setTimeout(() => setGlossaryAdded(false), 2500);
+    }
   };
 
   const saveTitle = async () => {
@@ -521,6 +578,18 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            className={`btn ${rec.favorite ? "text-amber-500" : ""}`}
+            title={rec.favorite ? m.listx.unstar : m.listx.star}
+            aria-label={rec.favorite ? m.listx.unstar : m.listx.star}
+            aria-pressed={rec.favorite}
+            onClick={() => patch({ favorite: !rec.favorite })}
+          >
+            {rec.favorite ? "★" : "☆"}
+          </button>
+          <button className="btn" title={rec.archived ? m.listx.unarchive : m.listx.archive} onClick={() => patch({ archived: !rec.archived })}>
+            {rec.archived ? `⤴ ${m.listx.unarchive}` : `🗄 ${m.listx.archive}`}
+          </button>
           {rec.status === "COMPLETED" && (
             <div className="relative">
               <button className="btn" onClick={() => setExportOpen((o) => !o)}>
@@ -670,6 +739,23 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
                 </label>
               </div>
             </div>
+            {(glossarySuggest || glossaryAdded) && (
+              <div className="mb-3 flex flex-wrap items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm dark:border-blue-900 dark:bg-blue-950" data-testid="glossary-suggest">
+                {glossaryAdded ? (
+                  <span className="text-emerald-700 dark:text-emerald-300">✓ {m.glossarySuggest.added}</span>
+                ) : (
+                  <>
+                    <span>{fmt(m.glossarySuggest.text, { terms: glossarySuggest!.map((t) => `„${t}“`).join(", ") })}</span>
+                    <button className="btn py-0.5 text-xs" onClick={() => addToGlossary(glossarySuggest!)}>
+                      {m.glossarySuggest.add}
+                    </button>
+                    <button className="text-xs text-zinc-500 hover:underline" onClick={() => setGlossarySuggest(null)}>
+                      {m.glossarySuggest.dismiss}
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
             {turns.length === 0 ? (
               <p className="text-sm text-zinc-500">{m.detail.noSpeech}</p>
             ) : (
@@ -829,6 +915,34 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
                 <p className="pt-1 text-xs text-zinc-500">
                   {saving ? m.detail.saving : rec.speakersWithEmbedding.length > 0 ? `${m.detail.renameNote} ${m.voices.help}` : m.detail.renameNote}
                 </p>
+              </div>
+            )}
+            {stats.rows.length > 0 && (
+              <div className="mt-5 border-t border-zinc-200 pt-4 dark:border-zinc-800" data-testid="speaker-stats">
+                <h3 className="mb-2 text-sm font-semibold">{m.stats.title}</h3>
+                <div className="space-y-2">
+                  {stats.rows.map((r) => {
+                    const c = speakerColor(r.speaker, rec.speakers);
+                    return (
+                      <div key={r.speaker} className="text-xs">
+                        <div className="flex justify-between gap-2">
+                          <span className="truncate font-medium" style={{ color: c.fg }}>
+                            {label(r.speaker)}
+                          </span>
+                          <span className="shrink-0 tabular-nums text-zinc-500">
+                            {Math.round(r.share * 100)} % · {formatTime(r.seconds)} · {r.turns} {m.stats.turns} · {r.words} {m.stats.words}
+                          </span>
+                        </div>
+                        <div className="mt-0.5 h-1.5 overflow-hidden rounded bg-zinc-200 dark:bg-zinc-700">
+                          <div className="h-full" style={{ width: `${Math.max(2, r.share * 100)}%`, background: c.fg }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <p className="text-xs text-zinc-500">
+                    {fmt(m.stats.totalTurns, { n: stats.totalTurns })} · {fmt(m.stats.longest, { d: formatTime(stats.longest) })}
+                  </p>
+                </div>
               </div>
             )}
             <div className="mt-5 border-t border-zinc-200 pt-4 dark:border-zinc-800">

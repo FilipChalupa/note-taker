@@ -35,6 +35,21 @@ export function normalizeTerms(text: string | null | undefined): string[] {
   return out;
 }
 
+/** Append terms to the global glossary (case-insensitive de-dup). Returns the terms actually added. */
+export function addGlossaryTerms(terms: string[]): string[] {
+  const current = normalizeTerms(getSetting("glossary") ?? "");
+  const have = new Set(current.map((t) => t.toLowerCase()));
+  const added: string[] = [];
+  for (const raw of terms) {
+    const t = raw.trim().slice(0, 60);
+    if (!t || have.has(t.toLowerCase())) continue;
+    have.add(t.toLowerCase());
+    added.push(t);
+  }
+  if (added.length) setSetting("glossary", [...current, ...added].join("\n"));
+  return added;
+}
+
 /**
  * Build Whisper's initial prompt from the global glossary and per-recording hints.
  * Whisper reads at most ~224 tokens of prompt, so the list is trimmed.

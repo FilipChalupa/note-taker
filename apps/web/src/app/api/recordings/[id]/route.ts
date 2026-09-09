@@ -16,7 +16,15 @@ export async function GET(_req: Request, { params }: Ctx) {
 
 export async function PATCH(req: Request, { params }: Ctx) {
   const { id } = await params;
-  let body: { title?: string; speakerNames?: Record<string, string>; hints?: string | null; tags?: string | string[]; notes?: string | null };
+  let body: {
+    title?: string;
+    speakerNames?: Record<string, string>;
+    hints?: string | null;
+    tags?: string | string[];
+    notes?: string | null;
+    favorite?: boolean;
+    archived?: boolean;
+  };
   try {
     body = await req.json();
   } catch {

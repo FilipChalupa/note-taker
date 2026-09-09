@@ -76,7 +76,11 @@ trimmed to Whisper's prompt budget (~900 characters) and sent as `initial_prompt
 | `POST` | `/api/recordings/:id/speakers/merge` | `{ from, into }` merge one speaker into another |
 | `POST` | `/api/recordings/:id/rediarize` | queue a speakers-only re-run (`{ minSpeakers?, maxSpeakers? }`) |
 | `GET` | `/api/search?q=` | full-text search (FTS5) with snippets |
-| `GET` | `/api/tags` | tags with usage counts; `GET /api/recordings?tag=` filters |
+| `GET` | `/api/recordings?tag=&view=&sort=&page=` | list; `view` = active / favorites / archived / all, `sort` = newest / oldest / title / longest / shortest; with `page` returns `{ items, total, page, pageSize }` |
+| `POST` | `/api/recordings/bulk` | `{ ids, action, tag? }` – delete / addTag / removeTag / archive / unarchive / favorite / unfavorite |
+| `POST` | `/share` | Web Share Target endpoint (multipart `media`, `title`, `text`) |
+| `POST` | `/api/settings/glossary` | `{ terms }` – append terms to the glossary (used by the correction suggestions) |
+| `GET` | `/api/tags` | tags with usage counts |
 | `GET` / `PATCH` / `DELETE` | `/api/voices[/:id]` | known voices learned from named speakers |
 | `POST` | `/api/recordings/:id/speakers/apply-suggestions` | name speakers after suggested known voices |
 | `GET` / `PUT` | `/api/settings` | global glossary |

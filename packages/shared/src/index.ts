@@ -154,6 +154,8 @@ export interface RecordingSummary {
   warning: string | null;
   /** Free-form labels: project, customer, meeting type… */
   tags: string[];
+  favorite: boolean;
+  archived: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -220,6 +222,36 @@ export interface Voice {
   samples: number;
   createdAt: string;
   updatedAt: string;
+}
+
+export type RecordingSort = "newest" | "oldest" | "title" | "longest" | "shortest";
+export type RecordingView = "active" | "favorites" | "archived" | "all";
+
+export interface RecordingListQuery {
+  tag?: string;
+  view?: RecordingView;
+  sort?: RecordingSort;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface RecordingPage {
+  items: RecordingSummary[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export type BulkAction = "delete" | "addTag" | "removeTag" | "archive" | "unarchive" | "favorite" | "unfavorite";
+
+export interface SpeakerStat {
+  speaker: string;
+  /** seconds of speech */
+  seconds: number;
+  /** 0..1 share of all speech */
+  share: number;
+  turns: number;
+  words: number;
 }
 
 export interface TagCount {

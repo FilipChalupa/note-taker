@@ -45,6 +45,7 @@ export function exportTranscript(
         `- ${m.export.duration}: ${clock(rec.durationSec ?? 0)}`,
         `- ${m.export.speakers}: ${rec.speakers.map(name).join(", ") || "–"}`,
         ...(rec.tags.length ? [`- ${m.tags.label}: ${rec.tags.join(", ")}`] : []),
+        ...speakerShareLines(rec, name, m),
         "",
         ...(rec.notes ? [`## ${m.notes.label}`, "", rec.notes, ""] : []),
         "---",
@@ -68,6 +69,14 @@ export function exportTranscript(
       return { body: `WEBVTT\n\n${body}\n`, mime: "text/vtt; charset=utf-8", ext: "vtt" };
     }
   }
+}
+
+function speakerShareLines(rec: RecordingDetail, name: (id: string) => string, m: (typeof messages)["en"]): string[] {
+  const per = new Map<string, number>();
+  for (const s of rec.segments) per.set(s.speaker, (per.get(s.speaker) ?? 0) + Math.max(0, s.end - s.start));
+  const total = [...per.values()].reduce((a, b) => a + b, 0);
+  if (total <= 0 || per.size < 2) return [];
+  return [`- ${m.stats.title}: ${rec.speakers.filter((id) => per.has(id)).map((id) => `${name(id)} ${Math.round((per.get(id)! / total) * 100)} %`).join(", ")}`];
 }
 
 export function safeFilename(title: string): string {

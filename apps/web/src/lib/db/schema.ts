@@ -15,6 +15,8 @@ export const recordings = sqliteTable("recordings", {
   tags: text("tags", { mode: "json" }).$type<string[]>().notNull().default([]),
   /** Free-text notes about the meeting */
   notes: text("notes"),
+  favorite: integer("favorite", { mode: "boolean" }).notNull().default(false),
+  archived: integer("archived", { mode: "boolean" }).notNull().default(false),
   minSpeakers: integer("min_speakers"),
   maxSpeakers: integer("max_speakers"),
 
