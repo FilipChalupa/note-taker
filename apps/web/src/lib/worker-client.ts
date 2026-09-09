@@ -76,7 +76,9 @@ export const workerClient = {
   ): Promise<TranscribeAccepted> {
     const form = new FormData();
     form.append("file", await openAsBlob(audioPath), filename);
-    form.append("segments", JSON.stringify(segments));
+    // As a file part: multipart form *fields* are capped at 1 MB by the worker's parser and a long
+    // transcript with word timestamps easily exceeds that.
+    form.append("segments_file", new Blob([JSON.stringify(segments)], { type: "application/json" }), "segments.json");
     if (params.language) form.append("language", params.language);
     if (params.min_speakers) form.append("min_speakers", String(params.min_speakers));
     if (params.max_speakers) form.append("max_speakers", String(params.max_speakers));

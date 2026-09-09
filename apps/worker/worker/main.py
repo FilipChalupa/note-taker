@@ -172,7 +172,8 @@ async def transcribe(
 @app.post("/diarize", response_model=TranscribeAccepted, status_code=202, dependencies=auth)
 async def diarize(
     file: UploadFile = File(...),
-    segments: str = Form(..., description="JSON array of transcript segments with word timestamps"),
+    segments: Optional[str] = Form(default=None, description="JSON array of transcript segments (small transcripts)"),
+    segments_file: Optional[UploadFile] = File(default=None, description="Same as `segments` but as a file part; use for long transcripts (form fields are capped at 1 MB)"),
     language: Optional[str] = Form(default=None),
     min_speakers: Optional[int] = Form(default=None),
     max_speakers: Optional[int] = Form(default=None),
@@ -182,8 +183,14 @@ async def diarize(
         raise HTTPException(409, "Diarization is disabled on this worker (HF_TOKEN / DIARIZATION_ENABLED)")
     if min_speakers and max_speakers and min_speakers > max_speakers:
         raise HTTPException(400, "min_speakers must be <= max_speakers")
+    raw = segments
+    if segments_file is not None:
+        raw = (await segments_file.read()).decode("utf-8", errors="replace")
+        await segments_file.close()
+    if raw is None:
+        raise HTTPException(400, "segments (form field) or segments_file (file part) is required")
     try:
-        parsed = json.loads(segments)
+        parsed = json.loads(raw)
         assert isinstance(parsed, list)
     except (ValueError, AssertionError):
         raise HTTPException(400, "segments must be a JSON array")

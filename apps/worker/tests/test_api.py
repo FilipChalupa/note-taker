@@ -103,3 +103,17 @@ def test_diarization_failure_is_reported(client, tone_file, monkeypatch):
     assert res["diarized"] is False and "GatedRepoError" in res["diarization_error"]
     assert "GatedRepoError" in client.get("/health").json()["diarization_error"]
     pipeline.diarization_error = None
+
+
+def test_diarize_accepts_large_segments_as_file_part(client, tone_file):
+    # ~2.5 MB of segments: more than the 1 MB cap on multipart form *fields*
+    segments = [{"start": i, "end": i + 1, "speaker": "SPEAKER_00", "text": "slovo " * 60, "words": None} for i in range(6000)]
+    payload = json.dumps(segments).encode()
+    assert len(payload) > 2_000_000
+    with tone_file.open("rb") as f:
+        r = client.post("/diarize", files={"file": ("tone.m4a", f, "audio/mp4"), "segments_file": ("segments.json", payload, "application/json")},
+                        data={"language": "cs"})
+    assert r.status_code == 202, r.text
+    st = wait_done(client, r.json()["task_id"])
+    assert st["status"] == "COMPLETED"
+    assert len(client.get(f"/tasks/{st['task_id']}/result").json()["segments"]) == 6000

@@ -59,6 +59,7 @@ const cs = {
   },
   warnings: {
     DIARIZATION_FAILED: "Rozpoznání mluvčích selhalo, celý přepis je přiřazen jednomu mluvčímu. Důvod: {detail}",
+    REDIARIZE_FAILED: "Přepočet mluvčích selhal, původní přepis i mluvčí zůstali beze změny. Důvod: {detail}",
   },
   tags: {
     label: "Štítky",
@@ -404,6 +405,7 @@ const en: Messages = {
   },
   warnings: {
     DIARIZATION_FAILED: "Speaker identification failed, the whole transcript is assigned to one speaker. Reason: {detail}",
+    REDIARIZE_FAILED: "Recomputing speakers failed, the existing transcript and speakers are unchanged. Reason: {detail}",
   },
   tags: {
     label: "Tags",

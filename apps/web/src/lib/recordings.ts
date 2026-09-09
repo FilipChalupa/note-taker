@@ -656,7 +656,7 @@ export async function dispatch(id: string): Promise<void> {
     if (!retryable && row.taskKind === "diarize") {
       // Speakers-only re-run rejected (e.g. diarization disabled): keep the existing transcript
       db.update(recordings)
-        .set({ status: "COMPLETED", taskKind: "transcribe", phase: "COMPLETED", warning: `DIARIZATION_FAILED:${msg}`, updatedAt: now() })
+        .set({ status: "COMPLETED", taskKind: "transcribe", phase: "COMPLETED", warning: `REDIARIZE_FAILED:${msg}`, updatedAt: now() })
         .where(eq(recordings.id, id))
         .run();
       return;
@@ -713,7 +713,7 @@ export async function syncRecording(id: string): Promise<void> {
         workerStatus: null,
         progress: 100,
         phase: "COMPLETED",
-        warning: `DIARIZATION_FAILED:${status.error ?? "WORKER_UNKNOWN_ERROR"}`,
+        warning: `REDIARIZE_FAILED:${status.error ?? "WORKER_UNKNOWN_ERROR"}`,
         updatedAt: now(),
       })
       .where(eq(recordings.id, id))
