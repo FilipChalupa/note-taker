@@ -3,7 +3,10 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ExportFormat, RecordingDetail, SegmentEdit } from "@note-taker/shared";
+import type { ExportFormat, RecordingDetail, SegmentEdit, TranscriptMutationResult, TranscriptSegment } from "@note-taker/shared";
+import { api } from "@/lib/api-client";
+import { Markdown } from "./Markdown";
+import { useToast } from "./Toast";
 import { StatusBadge } from "./StatusBadge";
 import { Dialog } from "./Dialog";
 import { requestWorkerRefresh } from "./WorkerStatus";
@@ -45,7 +48,26 @@ const EXPORTS: ExportFormat[] = ["md", "txt", "srt", "vtt"];
 export function RecordingView({ initial }: { initial: RecordingDetail }) {
   const { locale, m } = useI18n();
   const router = useRouter();
+  const toast = useToast();
   const [rec, setRec] = useState(initial);
+  const [notesEditing, setNotesEditing] = useState(false);
+
+  /** Apply a light mutation result (head + patch) to local state without re-downloading segments. */
+  const applyMutation = (res: TranscriptMutationResult) => {
+    setRec((prev) => {
+      let segments: TranscriptSegment[] = prev.segments;
+      const p = res.patch;
+      if (p.kind === "edits") segments = prev.segments.map((sg, i) => p.segments[i] ?? sg);
+      else if (p.kind === "splice") segments = [...prev.segments.slice(0, p.index), ...p.insert, ...prev.segments.slice(p.index + p.remove)];
+      else if (p.kind === "speakerMerge")
+        segments = prev.segments.map((sg) =>
+          sg.speaker === p.from ? { ...sg, speaker: p.into, words: sg.words?.map((w) => (w.speaker === p.from ? { ...w, speaker: p.into } : w)) } : sg,
+        );
+      return { ...res.recording, segments };
+    });
+    setNames(res.recording.speakerNames);
+  };
+  const fail = (err: unknown) => toast.error(fmt(m.toast.failed, { detail: (err as Error).message }));
   const inflight = rec.status === "QUEUED" || rec.status === "PROCESSING";
   const searchParams = useSearchParams();
   const query = (searchParams.get("q") ?? "").trim();
@@ -250,26 +272,21 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
   const applySuggestions = async (speakers?: string[]) => {
     setSaving(true);
     try {
-      const r = await fetch(`/api/recordings/${rec.id}/speakers/apply-suggestions`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ speakers }),
-      });
-      if (r.ok) {
-        const next = (await r.json()) as RecordingDetail;
-        setRec(next);
-        setNames(next.speakerNames);
-      }
+      applyMutation(await api<TranscriptMutationResult>(m, `/api/recordings/${rec.id}/speakers/apply-suggestions?light=1`, { method: "POST", body: JSON.stringify({ speakers }) }));
+    } catch (err) {
+      fail(err);
     } finally {
       setSaving(false);
     }
   };
 
   const saveNotes = async () => {
+    setNotesEditing(false);
     if (notesDraft === (rec.notes ?? "")) return;
-    await patch({ notes: notesDraft });
-    setNotesSaved(true);
-    setTimeout(() => setNotesSaved(false), 1500);
+    if (await patch({ notes: notesDraft })) {
+      setNotesSaved(true);
+      setTimeout(() => setNotesSaved(false), 1500);
+    }
   };
 
   const patch = async (body: {
@@ -283,12 +300,11 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
   }) => {
     setSaving(true);
     try {
-      const r = await fetch(`/api/recordings/${rec.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (r.ok) setRec((await r.json()) as RecordingDetail);
+      applyMutation(await api<TranscriptMutationResult>(m, `/api/recordings/${rec.id}?light=1`, { method: "PATCH", body: JSON.stringify(body) }));
+      return true;
+    } catch (err) {
+      fail(err);
+      return false;
     } finally {
       setSaving(false);
     }
@@ -298,12 +314,10 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
     pushHistory(rec);
     setSaving(true);
     try {
-      const r = await fetch(`/api/recordings/${rec.id}/segments`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ edits }),
-      });
-      if (r.ok) setRec((await r.json()) as RecordingDetail);
+      applyMutation(await api<TranscriptMutationResult>(m, `/api/recordings/${rec.id}/segments?light=1`, { method: "PATCH", body: JSON.stringify({ edits }) }));
+    } catch (err) {
+      setHistory((h) => h.slice(0, -1));
+      fail(err);
     } finally {
       setSaving(false);
     }
@@ -323,12 +337,10 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
     pushHistory(rec);
     setSaving(true);
     try {
-      const r = await fetch(`/api/recordings/${rec.id}/speakers/merge`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ from, into }),
-      });
-      if (r.ok) setRec((await r.json()) as RecordingDetail);
+      applyMutation(await api<TranscriptMutationResult>(m, `/api/recordings/${rec.id}/speakers/merge?light=1`, { method: "POST", body: JSON.stringify({ from, into }) }));
+    } catch (err) {
+      setHistory((h) => h.slice(0, -1));
+      fail(err);
     } finally {
       setSaving(false);
     }
@@ -352,16 +364,11 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
     setHistory((h) => h.slice(0, -1));
     setSaving(true);
     try {
-      const r = await fetch(`/api/recordings/${rec.id}/transcript`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(prev),
-      });
-      if (r.ok) {
-        const next = (await r.json()) as RecordingDetail;
-        setRec(next);
-        setNames(next.speakerNames);
-      }
+      const res = await api<TranscriptMutationResult>(m, `/api/recordings/${rec.id}/transcript?light=1`, { method: "PUT", body: JSON.stringify(prev) });
+      setRec({ ...res.recording, segments: prev.segments });
+      setNames(res.recording.speakerNames);
+    } catch (err) {
+      fail(err);
     } finally {
       setSaving(false);
     }
@@ -375,7 +382,7 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1800);
     } catch (err) {
-      setActionError((err as Error).message);
+      fail(err);
     }
   };
 
@@ -413,18 +420,11 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
     try {
       // persist a text change first so the split works on what the user sees
       if (text && text !== rec.segments[index]?.text) {
-        await fetch(`/api/recordings/${rec.id}/segments`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ edits: [{ index, text }] }),
-        });
+        applyMutation(await api<TranscriptMutationResult>(m, `/api/recordings/${rec.id}/segments?light=1`, { method: "PATCH", body: JSON.stringify({ edits: [{ index, text }] }) }));
       }
-      const r = await fetch(`/api/recordings/${rec.id}/segments/split`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ index, position }),
-      });
-      if (r.ok) setRec((await r.json()) as RecordingDetail);
+      applyMutation(await api<TranscriptMutationResult>(m, `/api/recordings/${rec.id}/segments/split?light=1`, { method: "POST", body: JSON.stringify({ index, position }) }));
+    } catch (err) {
+      fail(err);
     } finally {
       setSaving(false);
     }
@@ -458,12 +458,14 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
   };
 
   const addToGlossary = async (terms: string[]) => {
-    const r = await fetch("/api/settings/glossary", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ terms }) });
-    if (r.ok) {
+    try {
+      await api(m, "/api/settings/glossary", { method: "POST", body: JSON.stringify({ terms }) });
       for (const t of terms) glossaryRef.current?.add(t.toLowerCase());
       setGlossarySuggest(null);
       setGlossaryAdded(true);
       setTimeout(() => setGlossaryAdded(false), 2500);
+    } catch (err) {
+      fail(err);
     }
   };
 
@@ -493,17 +495,11 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
           ? { minSpeakers: int(rediarizeMin), maxSpeakers: int(rediarizeMax) }
           : {};
     setActionError(null);
-    const r = await fetch(`/api/recordings/${rec.id}/rediarize`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (r.ok) {
-      setRec((await r.json()) as RecordingDetail);
+    try {
+      setRec(await api<RecordingDetail>(m, `/api/recordings/${rec.id}/rediarize`, { method: "POST", body: JSON.stringify(body) }));
       requestWorkerRefresh();
-    } else {
-      const code = ((await r.json().catch(() => ({}))) as { error?: string }).error ?? `HTTP:${r.status}`;
-      setActionError(fmt(m.detail.rediarizeStartFailed, { detail: errorLabel(code, m) ?? code }));
+    } catch (err) {
+      setActionError(fmt(m.detail.rediarizeStartFailed, { detail: (err as Error).message }));
     }
   };
 
@@ -514,8 +510,13 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
       text: fmt(m.list.confirmDelete, { title: rec.title }),
       danger: true,
       onConfirm: () => void (async () => {
-        const r = await fetch(`/api/recordings/${rec.id}`, { method: "DELETE" });
-        if (r.ok) router.push("/");
+        try {
+          await api<void>(m, `/api/recordings/${rec.id}`, { method: "DELETE" });
+          toast.success(m.toast.deleted);
+          router.push("/");
+        } catch (err) {
+          fail(err);
+        }
       })(),
     });
 
@@ -526,10 +527,11 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
   };
 
   const doRetry = async () => {
-    const r = await fetch(`/api/recordings/${rec.id}/retry`, { method: "POST" });
-    if (r.ok) {
-      setRec((await r.json()) as RecordingDetail);
+    try {
+      setRec(await api<RecordingDetail>(m, `/api/recordings/${rec.id}/retry`, { method: "POST" }));
       requestWorkerRefresh();
+    } catch (err) {
+      fail(err);
     }
   };
 
@@ -652,7 +654,7 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
           </button>
           {rec.status === "COMPLETED" && (
             <div className="relative">
-              <button className="btn" onClick={() => setExportOpen((o) => !o)}>
+              <button className="btn" onClick={() => setExportOpen((o) => !o)} aria-haspopup="menu" aria-expanded={exportOpen}>
                 ⬇ {m.detail.export.replace(/:$/, "")} ▾
               </button>
               {exportOpen && (
@@ -683,7 +685,7 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
           )}
           {rec.status === "COMPLETED" && rec.segments.length > 0 && (
             <div className="relative">
-              <button className="btn" onClick={() => setCopyOpen((o) => !o)} title={m.detail.copy}>
+              <button className="btn" onClick={() => setCopyOpen((o) => !o)} title={m.detail.copy} aria-haspopup="menu" aria-expanded={copyOpen}>
                 📋 {copied ? m.detail.copied : m.detail.copy} ▾
               </button>
               {copyOpen && (
@@ -773,22 +775,41 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
         {rec.notes && (
           <div className="hidden print:block">
             <h2 className="text-sm font-semibold">{m.notes.label}</h2>
-            <p className="whitespace-pre-wrap text-sm">{rec.notes}</p>
+            <Markdown text={rec.notes} />
           </div>
         )}
         <div className="mb-1 flex items-center justify-between print:hidden">
           <h2 className="text-sm font-semibold">{m.notes.label}</h2>
-          <span className="text-xs text-zinc-500">{notesSaved ? m.notes.saved : ""}</span>
+          <span className="flex items-center gap-2 text-xs text-zinc-500">
+            {notesSaved ? m.notes.saved : ""}
+            {!notesEditing && (
+              <button className="btn py-0.5 text-xs" onClick={() => setNotesEditing(true)} data-testid="notes-edit">
+                ✎ {m.notes.edit}
+              </button>
+            )}
+          </span>
         </div>
-        <textarea
-          className="input min-h-[72px] text-sm"
-          value={notesDraft}
-          placeholder={m.notes.placeholder}
-          aria-label={m.notes.label}
-          onChange={(e) => setNotesDraft(e.target.value)}
-          onBlur={saveNotes}
-          data-print="hide"
-        />
+        {notesEditing ? (
+          <textarea
+            className="input min-h-[96px] text-sm"
+            autoFocus
+            value={notesDraft}
+            placeholder={m.notes.placeholder}
+            aria-label={m.notes.label}
+            onChange={(e) => setNotesDraft(e.target.value)}
+            onBlur={saveNotes}
+            onKeyDown={(e) => e.key === "Escape" && saveNotes()}
+            data-print="hide"
+          />
+        ) : rec.notes ? (
+          <div className="cursor-text print:hidden" onClick={() => setNotesEditing(true)} data-testid="notes-preview">
+            <Markdown text={rec.notes} />
+          </div>
+        ) : (
+          <p className="cursor-text text-sm text-zinc-400 print:hidden" onClick={() => setNotesEditing(true)}>
+            {m.notes.empty}
+          </p>
+        )}
       </section>
 
       {rec.status === "COMPLETED" && (
@@ -840,7 +861,7 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
                 {turns.map((turn, ti) => {
                   const c = speakerColor(turn.speaker, rec.speakers);
                   return (
-                    <div key={ti} className="rounded-md border-l-4 pl-3" style={{ borderColor: c.border, background: c.bg }}>
+                    <div key={ti} className="turn rounded-md border-l-4 pl-3" style={{ borderColor: c.border, background: c.bg }}>
                       <div className="group flex items-baseline gap-2 pt-1.5">
                         <span className="text-sm font-semibold" style={{ color: c.fg }}>
                           {label(turn.speaker)}

@@ -91,9 +91,37 @@ class TaskQueue:
     # ------------------------------------------------------------- lifecycle
     def start(self) -> None:
         self._restore_from_disk()
-        self._cleanup_expired()
+        self.cleanup()
         self._thread = threading.Thread(target=self._loop, name="gpu-worker", daemon=True)
         self._thread.start()
+        janitor = threading.Thread(target=self._janitor_loop, name="janitor", daemon=True)
+        janitor.start()
+
+    def cleanup(self) -> None:
+        """Remove expired finished tasks and stale files in incoming/ (interrupted uploads)."""
+        self._cleanup_expired()
+        self._cleanup_incoming()
+
+    def _janitor_loop(self, interval_s: float = 1800.0) -> None:
+        while True:
+            time.sleep(interval_s)
+            try:
+                self.cleanup()
+            except Exception as exc:  # noqa: BLE001
+                log.warning("Cleanup failed: %s", exc)
+
+    def _cleanup_incoming(self, max_age_s: float = 3600.0) -> None:
+        incoming = settings.data_dir / "incoming"
+        if not incoming.exists():
+            return
+        cutoff = time.time() - max_age_s
+        for f in incoming.iterdir():
+            try:
+                if f.is_file() and f.stat().st_mtime < cutoff:
+                    f.unlink()
+                    log.info("Removed stale upload %s", f.name)
+            except OSError:
+                pass
 
     def _restore_from_disk(self) -> None:
         if not settings.tasks_dir.exists():
@@ -133,12 +161,17 @@ class TaskQueue:
         if settings.task_ttl_hours <= 0:
             return
         cutoff = datetime.now(timezone.utc) - timedelta(hours=settings.task_ttl_hours)
-        for task in list(self._tasks.values()):
+        with self._lock:
+            tasks = list(self._tasks.values())
+        removed = 0
+        for task in tasks:
             if not task.status.terminal:
                 continue
             finished = datetime.fromisoformat(task.finished_at or task.created_at)
-            if finished < cutoff:
-                self.delete(task.id)
+            if finished < cutoff and self.delete(task.id):
+                removed += 1
+        if removed:
+            log.info("Expired %d finished task(s)", removed)
 
     # --------------------------------------------------------------- public
     def submit(self, original_filename: str, input_path: Path, language: Optional[str],

@@ -22,13 +22,13 @@ export function PlayerControls({ playing, time, duration, rate, onToggle, onSkip
   return (
     <div className={compact ? "flex flex-wrap items-center gap-2" : ""}>
       <div className="flex flex-wrap items-center gap-2">
-        <button className="btn" onClick={() => onSkip(-SKIP_SEC)} title={m.detail.back5}>
+        <button className="btn" onClick={() => onSkip(-SKIP_SEC)} title={m.detail.back5} aria-label={m.detail.back5}>
           ⏪ 5 s
         </button>
         <button className={`btn btn-primary justify-center whitespace-nowrap ${compact ? "w-20" : "w-24"}`} onClick={onToggle} title={m.detail.playPauseHint}>
           {playing ? m.detail.pause : m.detail.play}
         </button>
-        <button className="btn" onClick={() => onSkip(SKIP_SEC)} title={m.detail.fwd5}>
+        <button className="btn" onClick={() => onSkip(SKIP_SEC)} title={m.detail.fwd5} aria-label={m.detail.fwd5}>
           5 s ⏩
         </button>
         {compact && (
@@ -73,6 +73,7 @@ export function PlayerControls({ playing, time, duration, rate, onToggle, onSkip
           value={Math.min(time, duration || 0)}
           onChange={(e) => onSeek(Number(e.target.value))}
           className="w-full accent-blue-600"
+          aria-label={`${formatTime(time)} / ${formatTime(duration)}`}
         />
         {compact && (
           <span className="whitespace-nowrap font-mono text-xs tabular-nums text-zinc-600 dark:text-zinc-400">

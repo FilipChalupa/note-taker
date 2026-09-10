@@ -6,32 +6,56 @@ import { fmt } from "@/lib/i18n";
 import { useI18n } from "@/lib/i18n/client";
 import { formatBytes } from "@/lib/format";
 import { NotificationsToggle } from "./NotificationsToggle";
+import { Dialog } from "./Dialog";
+import { useToast } from "./Toast";
+import { api } from "@/lib/api-client";
 
 export function SettingsView({ initial, storage, voices: initialVoices }: { initial: AppSettings; storage: StorageInfo; voices: Voice[] }) {
   const { m } = useI18n();
+  const toast = useToast();
+  const fail = (err: unknown) => toast.error(fmt(m.toast.failed, { detail: (err as Error).message }));
   const [voices, setVoices] = useState(initialVoices);
-  const renameVoice = async (v: Voice) => {
-    const name = prompt(m.voices.rename, v.name);
-    if (!name || name.trim() === v.name) return;
-    const r = await fetch(`/api/voices/${v.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
-    if (r.ok) setVoices((vs) => vs.map((x) => (x.id === v.id ? { ...x, name: name.trim() } : x)));
+  const [voiceDialog, setVoiceDialog] = useState<null | { kind: "rename"; voice: Voice } | { kind: "delete"; voice: Voice }>(null);
+  const [voiceName, setVoiceName] = useState("");
+  const renameVoice = async () => {
+    if (voiceDialog?.kind !== "rename") return;
+    const v = voiceDialog.voice;
+    const name = voiceName.trim();
+    setVoiceDialog(null);
+    if (!name || name === v.name) return;
+    try {
+      await api(m, `/api/voices/${v.id}`, { method: "PATCH", body: JSON.stringify({ name }) });
+      setVoices((vs) => vs.map((x) => (x.id === v.id ? { ...x, name } : x)));
+      toast.success(m.toast.saved);
+    } catch (err) {
+      fail(err);
+    }
   };
-  const deleteVoice = async (v: Voice) => {
-    if (!confirm(fmt(m.voices.confirmDelete, { name: v.name }))) return;
-    const r = await fetch(`/api/voices/${v.id}`, { method: "DELETE" });
-    if (r.ok) setVoices((vs) => vs.filter((x) => x.id !== v.id));
+  const deleteVoice = async () => {
+    if (voiceDialog?.kind !== "delete") return;
+    const v = voiceDialog.voice;
+    setVoiceDialog(null);
+    try {
+      await api(m, `/api/voices/${v.id}`, { method: "DELETE" });
+      setVoices((vs) => vs.filter((x) => x.id !== v.id));
+      toast.success(m.toast.deleted);
+    } catch (err) {
+      fail(err);
+    }
   };
   const [glossary, setGlossary] = useState(initial.glossary);
   const [state, setState] = useState<"idle" | "saving" | "saved">("idle");
 
   const save = async () => {
     setState("saving");
-    const r = await fetch("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ glossary }) });
-    if (r.ok) {
-      setGlossary(((await r.json()) as AppSettings).glossary);
+    try {
+      setGlossary((await api<AppSettings>(m, "/api/settings", { method: "PUT", body: JSON.stringify({ glossary }) })).glossary);
       setState("saved");
       setTimeout(() => setState("idle"), 2000);
-    } else setState("idle");
+    } catch (err) {
+      setState("idle");
+      fail(err);
+    }
   };
 
   const used = storage.totalBytes;
@@ -63,10 +87,16 @@ export function SettingsView({ initial, storage, voices: initialVoices }: { init
                 <span className="font-medium">{v.name}</span>
                 <span className="text-xs text-zinc-500">{fmt(m.voices.samples, { n: v.samples })}</span>
                 <span className="ml-auto flex gap-1">
-                  <button className="btn px-2 py-1 text-xs" onClick={() => renameVoice(v)}>
+                  <button
+                    className="btn px-2 py-1 text-xs"
+                    onClick={() => {
+                      setVoiceName(v.name);
+                      setVoiceDialog({ kind: "rename", voice: v });
+                    }}
+                  >
                     {m.voices.rename}
                   </button>
-                  <button className="btn btn-danger px-2 py-1 text-xs" onClick={() => deleteVoice(v)}>
+                  <button className="btn btn-danger px-2 py-1 text-xs" onClick={() => setVoiceDialog({ kind: "delete", voice: v })}>
                     {m.voices.delete}
                   </button>
                 </span>
@@ -75,6 +105,41 @@ export function SettingsView({ initial, storage, voices: initialVoices }: { init
           </ul>
         )}
       </section>
+
+      <Dialog
+        open={voiceDialog?.kind === "rename"}
+        title={m.voices.renameTitle}
+        onClose={() => setVoiceDialog(null)}
+        actions={
+          <>
+            <button className="btn" onClick={() => setVoiceDialog(null)}>
+              {m.detail.cancel}
+            </button>
+            <button className="btn btn-primary" onClick={renameVoice} disabled={!voiceName.trim()}>
+              {m.settings.save}
+            </button>
+          </>
+        }
+      >
+        <input className="input" value={voiceName} onChange={(e) => setVoiceName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && renameVoice()} aria-label={m.voices.renameTitle} />
+      </Dialog>
+      <Dialog
+        open={voiceDialog?.kind === "delete"}
+        title={m.voices.deleteTitle}
+        onClose={() => setVoiceDialog(null)}
+        actions={
+          <>
+            <button className="btn" onClick={() => setVoiceDialog(null)}>
+              {m.detail.cancel}
+            </button>
+            <button className="btn btn-danger" onClick={deleteVoice}>
+              {m.detail.confirm}
+            </button>
+          </>
+        }
+      >
+        <p>{voiceDialog?.kind === "delete" ? fmt(m.voices.confirmDelete, { name: voiceDialog.voice.name }) : ""}</p>
+      </Dialog>
 
       <section className="card p-5">
         <h2 className="font-semibold">{m.importDir.title}</h2>

@@ -188,6 +188,18 @@ export interface SegmentEdit {
   end?: number;
 }
 
+/** Change description returned by transcript mutations when `?light=1` is passed (no full segment list). */
+export type TranscriptPatch =
+  | { kind: "edits"; segments: Record<number, TranscriptSegment> }
+  | { kind: "splice"; index: number; remove: number; insert: TranscriptSegment[] }
+  | { kind: "speakerMerge"; from: string; into: string }
+  | { kind: "none" };
+
+export interface TranscriptMutationResult {
+  recording: Omit<RecordingDetail, "segments">;
+  patch: TranscriptPatch;
+}
+
 export interface SearchHit {
   id: string;
   title: string;

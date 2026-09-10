@@ -85,7 +85,7 @@ test("print styles hide chrome and the print button calls window.print", async (
   await expect(page.locator("header")).toBeHidden();
   await expect(page.getByRole("button", { name: /Play/ })).toBeHidden();
   await expect(page.getByText("Ahoj, jak se máš?")).toBeVisible();
-  await expect(page.locator("p", { hasText: "Bring the printed copy." })).toBeVisible();
+  await expect(page.locator("p", { hasText: "Bring the printed copy." }).first()).toBeVisible();
   await expect(page.locator("[data-print='aside'] button").first()).toBeHidden();
   await page.emulateMedia({ media: "screen" });
   await expect(page.locator("header")).toBeVisible();

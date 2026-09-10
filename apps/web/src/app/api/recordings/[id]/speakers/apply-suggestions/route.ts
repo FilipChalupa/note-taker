@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { applySpeakerSuggestions } from "@/lib/recordings";
+import { applySpeakerSuggestions, recordingHead } from "@/lib/recordings";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,5 +15,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   }
   const speakers = Array.isArray(body.speakers) ? body.speakers.filter((s): s is string => typeof s === "string") : undefined;
   const rec = applySpeakerSuggestions(id, speakers);
-  return rec ? NextResponse.json(rec) : NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+  if (!rec) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+  if (new URL(req.url).searchParams.get("light") === "1") return NextResponse.json({ recording: recordingHead(id), patch: { kind: "none" } });
+  return NextResponse.json(rec);
 }

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { deleteRecording, getRecording, updateRecording } from "@/lib/recordings";
+import { deleteRecording, getRecording, recordingHead, updateRecording } from "@/lib/recordings";
 import { ensurePollerStarted } from "@/lib/poller";
 
 export const runtime = "nodejs";
@@ -31,7 +31,9 @@ export async function PATCH(req: Request, { params }: Ctx) {
     return NextResponse.json({ error: "INVALID_JSON" }, { status: 400 });
   }
   const rec = updateRecording(id, body);
-  return rec ? NextResponse.json(rec) : NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+  if (!rec) return NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
+  if (new URL(req.url).searchParams.get("light") === "1") return NextResponse.json({ recording: recordingHead(id), patch: { kind: "none" } });
+  return NextResponse.json(rec);
 }
 
 export async function DELETE(_req: Request, { params }: Ctx) {

@@ -72,7 +72,8 @@ trimmed to Whisper's prompt budget (~900 characters) and sent as `initial_prompt
 | `POST` | `/api/recordings/:id/retry` | resubmit to the worker |
 | `GET` | `/api/recordings/:id/audio` | audio with `Range` support |
 | `GET` | `/api/recordings/:id/export?format=md\|txt\|srt\|vtt` | transcript export |
-| `PATCH` | `/api/recordings/:id/segments` | edit segments: `{ edits: [{ index, text?, speaker? }] }` |
+| `PATCH` | `/api/recordings/:id/segments` | edit segments: `{ edits: [{ index, text?, speaker?, start?, end? }] }`; add `?light=1` to get `{ recording, patch }` instead of the full transcript (used by the UI for long recordings) |
+| `POST` | `/api/recordings/:id/segments/split` | `{ index, position }` split a sentence at a character position (`?light=1` supported) |
 | `POST` | `/api/recordings/:id/speakers/merge` | `{ from, into }` merge one speaker into another |
 | `POST` | `/api/recordings/:id/rediarize` | queue a speakers-only re-run (`{ minSpeakers?, maxSpeakers? }`) |
 | `GET` | `/api/search?q=` | full-text search (FTS5) with snippets |

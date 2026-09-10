@@ -29,6 +29,24 @@ body {
   @apply rounded-lg border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900;
 }
 
+/* Keyboard focus: visible ring on anything focusable (buttons, links, inputs, custom controls) */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Long transcripts: let the browser skip layout/paint of turns far outside the viewport */
+.turn {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 96px;
+}
+@media print {
+  .turn {
+    content-visibility: visible;
+  }
+}
+
 @keyframes pulse-soft {
   50% { opacity: 0.55; }
 }

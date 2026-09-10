@@ -63,6 +63,10 @@ Sample data shown below is fictional.
 | --- | --- |
 | ![Queue with ETA and speed](docs/screenshots/queue.png) | ![Upload form with drag & drop](docs/screenshots/upload.png) |
 
+| Full-text search | Record in the browser |
+| --- | --- |
+| ![Search results with snippets](docs/screenshots/search.png) | ![Recorder with source selection](docs/screenshots/record.png) |
+
 ## Quick start
 
 ### 1. Worker (Windows + WSL2 + NVIDIA GPU)

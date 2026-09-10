@@ -7,6 +7,8 @@ import type { BulkAction, RecordingListQuery, RecordingPage, RecordingSort, Reco
 import { StatusBadge } from "./StatusBadge";
 import { Dialog } from "./Dialog";
 import { requestWorkerRefresh } from "./WorkerStatus";
+import { useToast } from "./Toast";
+import { api } from "@/lib/api-client";
 import { errorLabel, formatDate, formatDuration, phaseLabel } from "@/lib/format";
 import { fmt } from "@/lib/i18n";
 import { useI18n } from "@/lib/i18n/client";
@@ -41,10 +43,11 @@ function buildHref(q: RecordingListQuery, patch: Partial<RecordingListQuery>): s
 export function RecordingList({ initial, tags, query }: { initial: RecordingPage; tags: TagCount[]; query: RecordingListQuery }) {
   const { locale, m } = useI18n();
   const router = useRouter();
+  const toast = useToast();
   const [data, setData] = useState(initial);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [dialog, setDialog] = useState<null | { kind: "tag"; action: "addTag" | "removeTag" } | { kind: "delete" }>(null);
+  const [dialog, setDialog] = useState<null | { kind: "tag"; action: "addTag" | "removeTag" } | { kind: "delete"; ids?: string[]; title?: string }>(null);
   const [tagInput, setTagInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [cursor, setCursor] = useState<number>(-1);
@@ -84,36 +87,41 @@ export function RecordingList({ initial, tags, query }: { initial: RecordingPage
     return () => clearInterval(t);
   }, [inflight, refresh]);
 
+  const fail = (err: unknown) => toast.error(fmt(m.toast.failed, { detail: (err as Error).message }));
+
   const patchOne = async (rec: RecordingSummary, body: Record<string, unknown>) => {
-    const r = await fetch(`/api/recordings/${rec.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    if (r.ok) router.refresh();
+    try {
+      await api(m, `/api/recordings/${rec.id}?light=1`, { method: "PATCH", body: JSON.stringify(body) });
+      router.refresh();
+    } catch (err) {
+      fail(err);
+    }
   };
 
-  const remove = async (rec: RecordingSummary) => {
-    if (!confirm(fmt(m.list.confirmDelete, { title: rec.title }))) return;
-    const r = await fetch(`/api/recordings/${rec.id}`, { method: "DELETE" });
-    if (r.ok) router.refresh();
-  };
+  const remove = (rec: RecordingSummary) => setDialog({ kind: "delete", ids: [rec.id], title: rec.title });
 
   const retry = async (rec: RecordingSummary) => {
-    await fetch(`/api/recordings/${rec.id}/retry`, { method: "POST" });
-    requestWorkerRefresh();
-    void refresh();
+    try {
+      await api(m, `/api/recordings/${rec.id}/retry`, { method: "POST" });
+      requestWorkerRefresh();
+      void refresh();
+    } catch (err) {
+      fail(err);
+    }
   };
 
-  const bulk = async (action: BulkAction, tag?: string) => {
-    if (selected.size === 0) return;
+  const bulk = async (action: BulkAction, tag?: string, ids: string[] = [...selected]) => {
+    if (ids.length === 0) return;
     setBusy(true);
     try {
-      await fetch("/api/recordings/bulk", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: [...selected], action, tag }),
-      });
-      setSelected(new Set());
+      await api(m, "/api/recordings/bulk", { method: "POST", body: JSON.stringify({ ids, action, tag }) });
+      if (action === "delete") toast.success(m.toast.deleted);
+      setSelected((s) => new Set([...s].filter((id) => !ids.includes(id))));
       setDialog(null);
       router.refresh();
       requestWorkerRefresh();
+    } catch (err) {
+      fail(err);
     } finally {
       setBusy(false);
     }
@@ -483,13 +491,13 @@ export function RecordingList({ initial, tags, query }: { initial: RecordingPage
             <button className="btn" onClick={() => setDialog(null)}>
               {m.detail.cancel}
             </button>
-            <button className="btn btn-danger" disabled={busy} onClick={() => bulk("delete")}>
+            <button className="btn btn-danger" disabled={busy} onClick={() => bulk("delete", undefined, dialog?.kind === "delete" && dialog.ids ? dialog.ids : [...selected])}>
               {m.detail.confirm}
             </button>
           </>
         }
       >
-        <p>{fmt(m.listx.confirmDeleteN, { n: selected.size })}</p>
+        <p>{dialog?.kind === "delete" && dialog.title ? fmt(m.list.confirmDelete, { title: dialog.title }) : fmt(m.listx.confirmDeleteN, { n: selected.size })}</p>
       </Dialog>
     </div>
   );

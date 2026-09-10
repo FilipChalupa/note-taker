@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { splitSegment } from "@/lib/recordings";
+import { splitSegment, splitSegmentPatch } from "@/lib/recordings";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,6 +14,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     return NextResponse.json({ error: "INVALID_JSON" }, { status: 400 });
   }
   if (!Number.isInteger(body.index) || !Number.isInteger(body.position)) return NextResponse.json({ error: "INVALID_JSON" }, { status: 400 });
-  const rec = splitSegment(id, body.index as number, body.position as number);
+  const light = new URL(req.url).searchParams.get("light") === "1";
+  const rec = light ? splitSegmentPatch(id, body.index as number, body.position as number) : splitSegment(id, body.index as number, body.position as number);
   return rec ? NextResponse.json(rec) : NextResponse.json({ error: "NOT_FOUND" }, { status: 404 });
 }

@@ -10,14 +10,24 @@ self.addEventListener("push", (event) => {
     data = { title: "Note Taker", body: event.data ? event.data.text() : "" };
   }
   event.waitUntil(
-    self.registration.showNotification(data.title || "Note Taker", {
-      body: data.body || "",
-      icon: "/icons/icon-192.png",
-      badge: "/icons/icon-192.png",
-      tag: data.tag,
-      renotify: Boolean(data.tag),
-      data: { url: data.url || "/" },
-    }),
+    (async () => {
+      // Skip the notification when the recording is already open in a visible window
+      const url = new URL(data.url || "/", self.location.origin);
+      const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      const open = windows.find((c) => c.visibilityState === "visible" && new URL(c.url).pathname === url.pathname);
+      if (open) {
+        open.postMessage({ type: "recording-updated", url: url.pathname });
+        return;
+      }
+      await self.registration.showNotification(data.title || "Note Taker", {
+        body: data.body || "",
+        icon: "/icons/icon-192.png",
+        badge: "/icons/icon-192.png",
+        tag: data.tag,
+        renotify: Boolean(data.tag),
+        data: { url: url.pathname },
+      });
+    })(),
   );
 });
 

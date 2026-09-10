@@ -14,6 +14,8 @@ import type {
   SearchHit,
   SegmentEdit,
   TagCount,
+  TranscriptMutationResult,
+  TranscriptPatch,
   TranscriptSegment,
 } from "@note-taker/shared";
 import { config, recordingDir } from "@/lib/config";
@@ -28,7 +30,29 @@ const { recordings } = schema;
 const now = () => new Date().toISOString();
 
 // --------------------------------------------------------------- mapping
-function toSummary(r: Omit<RecordingRow, "segments">): RecordingSummary {
+type SummaryRow = Pick<
+  RecordingRow,
+  | "id"
+  | "title"
+  | "originalFilename"
+  | "language"
+  | "detectedLanguage"
+  | "status"
+  | "workerStatus"
+  | "progress"
+  | "phase"
+  | "durationSec"
+  | "speakerCount"
+  | "error"
+  | "warning"
+  | "tags"
+  | "favorite"
+  | "archived"
+  | "createdAt"
+  | "updatedAt"
+>;
+
+function toSummary(r: SummaryRow): RecordingSummary {
   return {
     id: r.id,
     title: r.title,
@@ -50,6 +74,27 @@ function toSummary(r: Omit<RecordingRow, "segments">): RecordingSummary {
   };
 }
 
+/** Detail without the (potentially multi-megabyte) segment list. */
+function toDetailHead(r: RecordingRow): Omit<RecordingDetail, "segments"> {
+  const hasAudio = Boolean(r.audioPath && fs.existsSync(r.audioPath)) || fs.existsSync(r.originalPath);
+  return {
+    ...toSummary(r),
+    hints: r.hints ?? null,
+    notes: r.notes ?? null,
+    speakerSuggestions: r.speakerSuggestions ?? {},
+    speakersWithEmbedding: Object.keys(r.speakerEmbeddings ?? {}),
+    speakerNames: r.speakerNames ?? {},
+    speakers: r.speakers ?? [],
+    audioUrl: hasAudio ? `/api/recordings/${r.id}/audio` : null,
+  };
+}
+
+/** Result of a transcript mutation: light head + a patch the client can apply locally. */
+function mutationResult(id: string, patch: TranscriptPatch): TranscriptMutationResult | null {
+  const row = getRecordingRow(id);
+  return row ? { recording: toDetailHead(row), patch } : null;
+}
+
 function toDetail(r: RecordingRow): RecordingDetail {
   const hasAudio = Boolean(r.audioPath && fs.existsSync(r.audioPath)) || fs.existsSync(r.originalPath);
   return {
@@ -66,38 +111,26 @@ function toDetail(r: RecordingRow): RecordingDetail {
 }
 
 // ---------------------------------------------------------------- queries
-function selectSummaryRows() {
+function selectSummaryRows(): SummaryRow[] {
+  // Only what the overview needs: no segments, notes, embeddings or suggestions
   return db
     .select({
       id: recordings.id,
       title: recordings.title,
       originalFilename: recordings.originalFilename,
-      originalPath: recordings.originalPath,
-      audioPath: recordings.audioPath,
       language: recordings.language,
-      hints: recordings.hints,
-      tags: recordings.tags,
-      notes: recordings.notes,
-      favorite: recordings.favorite,
-      archived: recordings.archived,
-      minSpeakers: recordings.minSpeakers,
-      maxSpeakers: recordings.maxSpeakers,
+      detectedLanguage: recordings.detectedLanguage,
       status: recordings.status,
-      taskKind: recordings.taskKind,
-      workerTaskId: recordings.workerTaskId,
       workerStatus: recordings.workerStatus,
       progress: recordings.progress,
       phase: recordings.phase,
+      durationSec: recordings.durationSec,
+      speakerCount: recordings.speakerCount,
       error: recordings.error,
       warning: recordings.warning,
-      dispatchAttempts: recordings.dispatchAttempts,
-      durationSec: recordings.durationSec,
-      detectedLanguage: recordings.detectedLanguage,
-      speakerCount: recordings.speakerCount,
-      speakers: recordings.speakers,
-      speakerNames: recordings.speakerNames,
-      speakerEmbeddings: recordings.speakerEmbeddings,
-      speakerSuggestions: recordings.speakerSuggestions,
+      tags: recordings.tags,
+      favorite: recordings.favorite,
+      archived: recordings.archived,
       createdAt: recordings.createdAt,
       updatedAt: recordings.updatedAt,
     })
@@ -352,9 +385,15 @@ export function applySpeakerSuggestions(id: string, speakers?: string[]): Record
 
 /** Apply text / speaker edits to individual segments. */
 export function editSegments(id: string, edits: SegmentEdit[]): RecordingDetail | null {
+  return editSegmentsPatch(id, edits) ? getRecording(id) : null;
+}
+
+/** Same as editSegments but returns only the changed segments (indices stay stable unless times reorder). */
+export function editSegmentsPatch(id: string, edits: SegmentEdit[]): TranscriptMutationResult | null {
   const row = getRecordingRow(id);
   if (!row) return null;
   const segments = [...(row.segments ?? [])];
+  const changed: Record<number, TranscriptSegment> = {};
   for (const e of edits) {
     const seg = segments[e.index];
     if (!seg) continue;
@@ -388,10 +427,14 @@ export function editSegments(id: string, edits: SegmentEdit[]): RecordingDetail 
       next.end = Math.round(end * 1000) / 1000;
     }
     segments[e.index] = next;
+    changed[e.index] = next;
   }
+  const order = segments.map((sg, i) => i);
   segments.sort((a, b) => a.start - b.start);
+  const reordered = segments.some((sg, i) => sg !== (row.segments ?? [])[order[i]] && !(i in changed));
   saveSegments(id, row, segments);
-  return getRecording(id);
+  // If sorting moved segments around, the client cannot apply an index patch -> send a full splice
+  return mutationResult(id, reordered ? { kind: "splice", index: 0, remove: (row.segments ?? []).length, insert: segments } : { kind: "edits", segments: changed });
 }
 
 /**
@@ -399,16 +442,20 @@ export function editSegments(id: string, edits: SegmentEdit[]): RecordingDetail 
  * The boundary time comes from word timestamps when available, otherwise proportionally to text length.
  */
 export function splitSegment(id: string, index: number, position: number): RecordingDetail | null {
+  return splitSegmentPatch(id, index, position) ? getRecording(id) : null;
+}
+
+export function splitSegmentPatch(id: string, index: number, position: number): TranscriptMutationResult | null {
   const row = getRecordingRow(id);
   if (!row) return null;
   const segments = [...(row.segments ?? [])];
   const seg = segments[index];
-  if (!seg) return getRecording(id);
+  if (!seg) return mutationResult(id, { kind: "none" });
   const text = seg.text;
   const pos = Math.max(0, Math.min(text.length, position));
   const left = text.slice(0, pos).trim();
   const right = text.slice(pos).trim();
-  if (!left || !right) return getRecording(id);
+  if (!left || !right) return mutationResult(id, { kind: "none" });
 
   let boundary: number;
   let leftWords: TranscriptSegment["words"];
@@ -433,13 +480,18 @@ export function splitSegment(id: string, index: number, position: number): Recor
   const second: TranscriptSegment = { ...seg, text: right, start: boundary, words: rightWords };
   segments.splice(index, 1, first, second);
   saveSegments(id, row, segments);
-  return getRecording(id);
+  return mutationResult(id, { kind: "splice", index, remove: 1, insert: [first, second] });
 }
 
 /** Merge speaker `from` into `into` across the whole transcript. */
 export function mergeSpeakers(id: string, from: string, into: string): RecordingDetail | null {
+  return mergeSpeakersPatch(id, from, into) ? getRecording(id) : null;
+}
+
+export function mergeSpeakersPatch(id: string, from: string, into: string): TranscriptMutationResult | null {
   const row = getRecordingRow(id);
-  if (!row || from === into) return row ? getRecording(id) : null;
+  if (!row) return null;
+  if (from === into) return mutationResult(id, { kind: "none" });
   const segments = (row.segments ?? []).map((seg) =>
     seg.speaker === from
       ? { ...seg, speaker: into, words: seg.words?.map((w) => (w.speaker === from ? { ...w, speaker: into } : w)) }
@@ -455,7 +507,7 @@ export function mergeSpeakers(id: string, from: string, into: string): Recording
   forgetSample(id, from);
   db.update(recordings).set({ speakerEmbeddings: embeddings, speakerSuggestions: suggestions }).where(eq(recordings.id, id)).run();
   saveSegments(id, row, segments, names);
-  return getRecording(id);
+  return mutationResult(id, { kind: "speakerMerge", from, into });
 }
 
 /** Replace the whole transcript state (undo). Segment shape is validated loosely. */
@@ -487,6 +539,11 @@ export function replaceTranscript(
     .run();
   indexRecording(id);
   return getRecording(id);
+}
+
+export function recordingHead(id: string): Omit<RecordingDetail, "segments"> | null {
+  const row = getRecordingRow(id);
+  return row ? toDetailHead(row) : null;
 }
 
 function saveSegments(id: string, row: RecordingRow, segments: TranscriptSegment[], speakerNames?: Record<string, string>) {

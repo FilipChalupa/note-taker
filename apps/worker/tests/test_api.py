@@ -117,3 +117,32 @@ def test_diarize_accepts_large_segments_as_file_part(client, tone_file):
     st = wait_done(client, r.json()["task_id"])
     assert st["status"] == "COMPLETED"
     assert len(client.get(f"/tasks/{st['task_id']}/result").json()["segments"]) == 6000
+
+
+def test_cleanup_removes_stale_incoming_and_expired_tasks(client, tone_file, monkeypatch, tmp_path):
+    import os
+    import time as _time
+
+    from worker.queue import task_queue
+
+    incoming = settings.data_dir / "incoming"
+    incoming.mkdir(parents=True, exist_ok=True)
+    stale = incoming / "stale.bin"
+    stale.write_bytes(b"x")
+    old = _time.time() - 7200
+    os.utime(stale, (old, old))
+    fresh = incoming / "fresh.bin"
+    fresh.write_bytes(b"x")
+
+    with tone_file.open("rb") as f:
+        task_id = client.post("/transcribe", files={"file": ("tone.m4a", f, "audio/mp4")}).json()["task_id"]
+    st = wait_done(client, task_id)
+    assert st["status"] == "COMPLETED"
+
+    monkeypatch.setattr(settings, "task_ttl_hours", 1)
+    task = task_queue.get(task_id)
+    task.finished_at = "2000-01-01T00:00:00+00:00"
+    task_queue.cleanup()
+    assert not stale.exists() and fresh.exists()
+    assert client.get(f"/tasks/{task_id}/status").status_code == 404
+    fresh.unlink()

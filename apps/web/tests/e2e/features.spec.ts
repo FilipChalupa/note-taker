@@ -25,6 +25,7 @@ test("tags: upload with tags, filter in the list, edit on detail, searchable", a
   await input.press("Enter");
   await expect(page.getByRole("link", { name: "Q3", exact: true })).toBeVisible();
 
+  await page.getByTestId("notes-edit").click();
   const notes = page.getByLabel("Notes");
   await notes.fill("Decision: ship the export in August. Owner: Jonas.");
   await notes.blur();

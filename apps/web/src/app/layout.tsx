@@ -7,6 +7,7 @@ import { I18nProvider } from "@/lib/i18n/client";
 import { PlayerProvider } from "@/components/player/PlayerProvider";
 import { GlobalPlayerBar } from "@/components/player/GlobalPlayerBar";
 import { DropProvider } from "@/components/DropProvider";
+import { ToastProvider } from "@/components/Toast";
 import { SearchBox } from "@/components/SearchBox";
 import { NotificationsToggle } from "@/components/NotificationsToggle";
 import { getMessages } from "@/lib/i18n/server";
@@ -41,6 +42,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     <html lang={locale}>
       <body>
         <I18nProvider locale={locale}>
+          <ToastProvider>
           <PlayerProvider>
           <DropProvider>
           <header className="border-b border-zinc-200 bg-white/80 backdrop-blur dark:border-zinc-800 dark:bg-zinc-900/80">
@@ -78,6 +80,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <GlobalPlayerBar />
           </DropProvider>
           </PlayerProvider>
+          </ToastProvider>
         </I18nProvider>
       </body>
     </html>
