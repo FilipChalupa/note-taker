@@ -30,7 +30,8 @@ reachable again.
 - Player with 1×–3× speed, ±5 s, keyboard and media keys; keeps playing while you browse. Click any sentence or word to seek; the current word is highlighted.
 - Transcript editing: fix text inline, adjust start/end times, split a sentence at the cursor (Ctrl+Enter), reassign a turn to another speaker, merge speakers, rename speakers, undo.
 - Recompute speakers without re-transcribing; reprocess from scratch.
-- Full-text search across all transcripts (diacritics-insensitive), with matches highlighted in the transcript.
+- Full-text search across all transcripts (diacritics-insensitive) and Ctrl+F search inside an open transcript; long
+  transcripts render as a window of turns so even three-hour meetings stay smooth on a phone.
 - Queue page with real progress, ETA and processing speed; works offline from the worker (uploads wait, finished transcripts stay available).
 - Export to Markdown, plain text, SRT, VTT; print-friendly layout; download the normalized MP3.
 - Keyboard-driven list (arrows/J K, Space to select, A, F, E, T, Delete) and transcript (J K, N P, E, ?).
@@ -40,7 +41,8 @@ reachable again.
 - Speaker statistics (talk time, share, turns) and a glossary that learns from your corrections.
 - Known voices: naming a speaker once makes the app suggest the name in later recordings.
 - Record from the microphone, a browser tab / screen (online meetings) or both; in-progress recordings survive a crash.
-- Czech and English UI, phone-friendly layout, GPU utilization/VRAM/temperature in the header, disk usage in Settings.
+- Czech and English UI, phone-friendly layout, GPU utilization/VRAM/temperature in the header; processing statistics,
+  disk usage and known voices in Settings. Dates follow the visitor's time zone.
 
 ## Tests
 
@@ -133,6 +135,7 @@ docker-compose.all.yml
 | `GET` | `/tasks/{id}/result` | JSON with `segments[]` (`start`, `end`, `speaker`, `text`, `words[]`), `speakers[]`, `language`, `duration`, `audio_url` (202 until finished) |
 | `GET` | `/tasks/{id}/audio` | normalized audio (16 kHz mono MP3) |
 | `DELETE` | `/tasks/{id}` | removes the task and its files |
-| `GET` | `/health` | CUDA availability, GPU name, VRAM, queue length, loaded model |
+| `GET` | `/health` | CUDA availability, GPU name, VRAM and telemetry, queue length, loaded model |
+| `GET` | `/metrics` | totals (tasks, audio hours, processing time), failure rate, per-day buckets, phase speeds |
 
 When `WORKER_API_KEY` is set, every endpoint except `/health` requires the `X-API-Key` header.

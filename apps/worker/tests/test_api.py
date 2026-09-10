@@ -146,3 +146,13 @@ def test_cleanup_removes_stale_incoming_and_expired_tasks(client, tone_file, mon
     assert not stale.exists() and fresh.exists()
     assert client.get(f"/tasks/{task_id}/status").status_code == 404
     fresh.unlink()
+
+
+def test_metrics_endpoint_counts_tasks(client, tone_file):
+    before = client.get("/metrics").json()["totals"]["completed"]
+    with tone_file.open("rb") as f:
+        task_id = client.post("/transcribe", files={"file": ("tone.m4a", f, "audio/mp4")}).json()["task_id"]
+    wait_done(client, task_id)
+    snap = client.get("/metrics").json()
+    assert snap["totals"]["completed"] == before + 1
+    assert snap["totals"]["audio_seconds"] > 0 and "phase_rtf" in snap and snap["days"]

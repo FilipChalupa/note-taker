@@ -269,6 +269,16 @@ export interface SpeakerStat {
   words: number;
 }
 
+/** GET /metrics on the worker. */
+export interface WorkerMetrics {
+  totals: { completed: number; failed: number; audio_seconds: number; processing_seconds: number; diarize_only: number };
+  /** audio seconds per processing second over everything ever processed */
+  speed_rtf: number | null;
+  failure_rate: number;
+  days: Array<{ date: string; completed: number; failed: number; audio_seconds: number; processing_seconds: number }>;
+  phase_rtf: Record<string, number>;
+}
+
 export interface TagCount {
   tag: string;
   count: number;

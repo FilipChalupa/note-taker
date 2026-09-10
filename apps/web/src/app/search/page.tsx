@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 export default async function SearchPage({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
   const { q = "" } = await searchParams;
-  const { locale, m } = await getMessages();
+  const { locale, m, tz } = await getMessages();
   const query = q.trim();
   const hits = query ? searchRecordings(query) : [];
   return (
@@ -24,7 +24,7 @@ export default async function SearchPage({ searchParams }: { searchParams: Promi
             <div className="flex items-baseline justify-between gap-3">
               <div className="font-medium">{h.title}</div>
               <div className="shrink-0 text-xs text-zinc-500">
-                {formatDate(h.createdAt, locale)} · {formatDuration(h.durationSec, m)}
+                {formatDate(h.createdAt, locale, tz)} · {formatDuration(h.durationSec, m)}
               </div>
             </div>
             {/* snippet is HTML-escaped server-side; only <mark> tags are injected */}

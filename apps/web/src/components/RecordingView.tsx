@@ -46,7 +46,7 @@ function highlightMatches(
 const EXPORTS: ExportFormat[] = ["md", "txt", "srt", "vtt"];
 
 export function RecordingView({ initial }: { initial: RecordingDetail }) {
-  const { locale, m } = useI18n();
+  const { locale, m, tz } = useI18n();
   const router = useRouter();
   const toast = useToast();
   const [rec, setRec] = useState(initial);
@@ -70,7 +70,8 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
   const fail = (err: unknown) => toast.error(fmt(m.toast.failed, { detail: (err as Error).message }));
   const inflight = rec.status === "QUEUED" || rec.status === "PROCESSING";
   const searchParams = useSearchParams();
-  const query = (searchParams.get("q") ?? "").trim();
+  const [query, setQuery] = useState(() => (searchParams.get("q") ?? "").trim());
+  const searchRef = useRef<HTMLInputElement>(null);
 
   // ---------------------------------------------------------------- polling
   const refresh = useCallback(async () => {
@@ -188,10 +189,16 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
   }, [rec.segments, activeIndex, time]);
 
   const matcher = useMemo(() => {
-    if (!query) return null;
-    const terms = query.split(/\s+/).filter(Boolean).map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+    const q = query.trim();
+    if (!q) return null;
+    const esc = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    // Phrase match first (what Ctrl+F users expect); fall back to any-of-the-words when the phrase
+    // never occurs, which is the case for hits coming from the full-text search page.
+    const phrase = new RegExp(`(${q.split(/\s+/).map(esc).join("\\s+")})`, "giu");
+    if (rec.segments.some((sg) => phrase.test(sg.text))) return phrase;
+    const terms = q.split(/\s+/).filter(Boolean).map(esc);
     return terms.length ? new RegExp(`(${terms.join("|")})`, "giu") : null;
-  }, [query]);
+  }, [query, rec.segments]);
   const matchCount = useMemo(() => {
     if (!matcher) return 0;
     return rec.segments.reduce((n, s) => n + (s.text.match(matcher)?.length ?? 0), 0);
@@ -208,15 +215,131 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
   }, [matcher, rec.segments]);
   const [matchCursor, setMatchCursor] = useState(0);
   const matchRef = useRef<HTMLSpanElement>(null);
+  const segmentOfMatch = (cursor: number): number => {
+    let seg = -1;
+    for (const [i, off] of matchOffsets) if (off <= cursor && i > seg) seg = i;
+    return seg;
+  };
   useEffect(() => {
-    matchRef.current?.scrollIntoView({ block: "center" });
-  }, [matchCursor, matchCount]);
+    if (!matcher || matchCount === 0) return;
+    // Small delay so the page does not jump on every keystroke while the query is being typed
+    const t = setTimeout(() => {
+      const segIdx = segmentOfMatch(matchCursor);
+      const ti = segIdx >= 0 ? turnOfSegment[segIdx] : undefined;
+      if (virtual && ti != null && (ti < range[0] || ti >= range[1])) {
+        scrollToTurn(ti, "match");
+        return;
+      }
+      matchRef.current?.scrollIntoView({ block: "center" });
+    }, 180);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [matchCursor, matchCount, matcher]);
 
   const activeRef = useRef<HTMLSpanElement>(null);
 
+  // ---- windowed rendering of turns (long recordings) ----
+  const VIRTUAL_MIN_TURNS = 60;
+  const EST_TURN_PX = 110;
+  const GAP_PX = 16;
+  const OVERSCAN_PX = 800;
+  const [forceAll, setForceAll] = useState(false);
+  const virtual = turns.length > VIRTUAL_MIN_TURNS && !forceAll;
+  const listRef = useRef<HTMLDivElement>(null);
+  const playerCardRef = useRef<HTMLDivElement>(null);
+  const [playerH, setPlayerH] = useState(0);
   useEffect(() => {
-    if (!follow || !playing || !activeRef.current) return;
-    activeRef.current.scrollIntoView({ block: "center", behavior: "smooth" });
+    const el = playerCardRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => setPlayerH(el.offsetHeight));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [rec.audioUrl]);
+  const heights = useRef<number[]>([]);
+  const [range, setRange] = useState<[number, number]>([0, 40]);
+  const pendingScroll = useRef<"active" | "match" | null>(null);
+  const turnOfSegment = useMemo(() => {
+    const a: number[] = [];
+    turns.forEach((t, ti) => t.segments.forEach((sg) => (a[sg.index] = ti)));
+    return a;
+  }, [turns]);
+  const heightOf = (i: number) => (heights.current[i] ?? EST_TURN_PX) + GAP_PX;
+  const offsetOf = (i: number) => {
+    let y = 0;
+    for (let k = 0; k < i && k < turns.length; k++) y += heightOf(k);
+    return y;
+  };
+  const recompute = useCallback(() => {
+    if (!virtual || !listRef.current) return;
+    const top = listRef.current.getBoundingClientRect().top + window.scrollY;
+    const vs = window.scrollY - top - OVERSCAN_PX;
+    const ve = window.scrollY + window.innerHeight - top + OVERSCAN_PX;
+    let y = 0;
+    let start = 0;
+    while (start < turns.length && y + heightOf(start) < vs) y += heightOf(start++);
+    let end = start;
+    while (end < turns.length && y < ve) y += heightOf(end++);
+    setRange((prev) => (prev[0] === start && prev[1] === end ? prev : [start, end]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [virtual, turns.length]);
+  useEffect(() => {
+    if (!virtual) return;
+    recompute();
+    let raf = 0;
+    const onScroll = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(recompute);
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onScroll);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onScroll);
+    };
+  }, [virtual, recompute]);
+  useEffect(() => {
+    const before = () => setForceAll(true);
+    const after = () => setForceAll(false);
+    window.addEventListener("beforeprint", before);
+    window.addEventListener("afterprint", after);
+    return () => {
+      window.removeEventListener("beforeprint", before);
+      window.removeEventListener("afterprint", after);
+    };
+  }, []);
+  const measure = (ti: number) => (el: HTMLDivElement | null) => {
+    if (!el) return;
+    const h = el.offsetHeight;
+    if (Math.abs((heights.current[ti] ?? 0) - h) > 1) heights.current[ti] = h;
+  };
+  const scrollToTurn = (ti: number, what: "active" | "match") => {
+    if (!listRef.current) return;
+    pendingScroll.current = what;
+    const top = listRef.current.getBoundingClientRect().top + window.scrollY;
+    window.scrollTo({ top: Math.max(0, top + offsetOf(ti) - 160) });
+    recompute();
+  };
+  useEffect(() => {
+    // finish a scroll requested while the target turn was not rendered yet
+    const what = pendingScroll.current;
+    if (!what) return;
+    const el = what === "active" ? activeRef.current : matchRef.current;
+    if (el) {
+      pendingScroll.current = null;
+      el.scrollIntoView({ block: "center" });
+    }
+  });
+
+  useEffect(() => {
+    if (!follow || !playing || activeIndex < 0) return;
+    const ti = turnOfSegment[activeIndex];
+    if (virtual && ti != null && (ti < range[0] || ti >= range[1])) {
+      scrollToTurn(ti, "active");
+      return;
+    }
+    activeRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeIndex, follow, playing]);
 
   // ---------------------------------------------------------------- editing
@@ -544,6 +667,12 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
   undoRef.current = undo;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f" && rec.status === "COMPLETED" && rec.segments.length > 0 && !dialog) {
+        e.preventDefault();
+        searchRef.current?.focus();
+        searchRef.current?.select();
+        return;
+      }
       const target = e.target as HTMLElement | null;
       if (target && (/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) || target.isContentEditable)) return;
       if (dialog) return;
@@ -575,7 +704,7 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [turns, activeIndex, time, matchCount, dialog, rec.status, seekTo]);
+  }, [turns, activeIndex, time, matchCount, dialog, rec.status, rec.segments.length, seekTo]);
 
   // ------------------------------------------------------------------ render
   return (
@@ -614,7 +743,7 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
           )}
           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-zinc-500">
             <StatusBadge status={rec.status} title={phase} progress={rec.progress} />
-            <span>{formatDate(rec.createdAt, locale)}</span>
+            <span>{formatDate(rec.createdAt, locale, tz)}</span>
             <span>{formatDuration(rec.durationSec, m)}</span>
             <span>{langLabel}</span>
             {rec.speakerCount != null && <span>{fmt(m.detail.speakersCount, { n: rec.speakerCount })}</span>}
@@ -757,7 +886,7 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
       )}
 
       {rec.audioUrl && (
-        <div className="card sticky top-2 z-10 p-4 print:hidden">
+        <div ref={playerCardRef} className="card sticky top-2 z-10 p-4 print:hidden">
           <PlayerControls
             playing={playing}
             time={time}
@@ -815,19 +944,51 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
       {rec.status === "COMPLETED" && (
         <div className="grid gap-5 lg:grid-cols-[1fr_260px]">
           <section className="card p-5">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div
+              className="sticky z-[9] -mx-5 -mt-5 mb-3 flex flex-wrap items-center justify-between gap-2 rounded-t-lg bg-white/95 px-5 pb-2 pt-5 backdrop-blur dark:bg-zinc-900/95 print:static print:m-0 print:p-0"
+              style={{ top: rec.audioUrl ? playerH + 12 : 8 }}
+            >
               <h2 className="font-semibold">{m.detail.transcript}</h2>
-              <div className="flex items-center gap-3 text-xs text-zinc-500 print:hidden">
-                {matcher && (
-                  <span className="flex items-center gap-1">
-                    {fmt(m.detail.searchMatches, { n: matchCount, q: query })}
-                    {matchCount > 1 && (
-                      <button className="btn px-1.5 py-0.5 text-xs" onClick={() => setMatchCursor((c) => (c + 1) % matchCount)}>
-                        {m.detail.nextMatch} ›
-                      </button>
-                    )}
-                  </span>
-                )}
+              <div className="flex flex-wrap items-center gap-3 text-xs text-zinc-500 print:hidden">
+                <span className="flex items-center gap-1">
+                  <input
+                    ref={searchRef}
+                    type="search"
+                    className="input w-44 py-0.5 text-xs"
+                    value={query}
+                    placeholder={m.detail.searchInTranscript}
+                    aria-label={m.detail.searchInTranscript}
+                    data-testid="transcript-search"
+                    onChange={(e) => {
+                      setQuery(e.target.value);
+                      setMatchCursor(0);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && matchCount > 0) {
+                        e.preventDefault();
+                        setMatchCursor((c) => (c + (e.shiftKey ? matchCount - 1 : 1)) % matchCount);
+                      } else if (e.key === "Escape") {
+                        setQuery("");
+                        (e.target as HTMLInputElement).blur();
+                      }
+                    }}
+                  />
+                  {matcher && (
+                    <>
+                      <span data-testid="match-count">{fmt(m.detail.searchMatches, { n: matchCount, q: query.trim() })}</span>
+                      {matchCount > 1 && (
+                        <>
+                          <button className="btn px-1.5 py-0.5 text-xs" onClick={() => setMatchCursor((c) => (c + matchCount - 1) % matchCount)} aria-label={m.detail.prevMatch}>
+                            ‹
+                          </button>
+                          <button className="btn px-1.5 py-0.5 text-xs" onClick={() => setMatchCursor((c) => (c + 1) % matchCount)} aria-label={m.detail.nextMatch}>
+                            ›
+                          </button>
+                        </>
+                      )}
+                    </>
+                  )}
+                </span>
                 <span className="hidden sm:inline" title={m.detail.editHint}>
                   ✎ {m.detail.editHint}
                 </span>
@@ -857,11 +1018,19 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
             {turns.length === 0 ? (
               <p className="text-sm text-zinc-500">{m.detail.noSpeech}</p>
             ) : (
-              <div className="space-y-4">
-                {turns.map((turn, ti) => {
+              <div
+                ref={listRef}
+                data-testid="turns"
+                data-virtual={virtual ? "1" : "0"}
+                // overflow-anchor: none, otherwise Chrome's scroll anchoring undoes programmatic jumps when the window re-renders
+                style={{ overflowAnchor: "none" }}
+              >
+                {virtual && <div style={{ height: offsetOf(range[0]) }} aria-hidden />}
+                {turns.slice(virtual ? range[0] : 0, virtual ? range[1] : turns.length).map((turn, k) => {
+                  const ti = (virtual ? range[0] : 0) + k;
                   const c = speakerColor(turn.speaker, rec.speakers);
                   return (
-                    <div key={ti} className="turn rounded-md border-l-4 pl-3" style={{ borderColor: c.border, background: c.bg }}>
+                    <div key={ti} ref={measure(ti)} className="turn mb-4 rounded-md border-l-4 pl-3" style={{ borderColor: c.border, background: c.bg }}>
                       <div className="group flex items-baseline gap-2 pt-1.5">
                         <span className="text-sm font-semibold" style={{ color: c.fg }}>
                           {label(turn.speaker)}
@@ -976,6 +1145,7 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
                     </div>
                   );
                 })}
+                {virtual && <div style={{ height: Math.max(0, offsetOf(turns.length) - offsetOf(range[1])) }} aria-hidden />}
               </div>
             )}
           </section>

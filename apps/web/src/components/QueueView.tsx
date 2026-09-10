@@ -3,14 +3,14 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { QueueItem, QueueResponse } from "@note-taker/shared";
-import { formatDate, formatDuration, phaseLabel } from "@/lib/format";
+import { formatClock, formatDate, formatDuration, phaseLabel } from "@/lib/format";
 import { fmt } from "@/lib/i18n";
 import { useI18n } from "@/lib/i18n/client";
 
 const POLL_MS = 2000;
 
 export function QueueView() {
-  const { locale, m } = useI18n();
+  const { locale, m, tz } = useI18n();
   const [data, setData] = useState<QueueResponse | null>(null);
 
   useEffect(() => {
@@ -49,11 +49,11 @@ export function QueueView() {
               <span className="rounded bg-purple-100 px-1.5 text-purple-800 dark:bg-purple-900 dark:text-purple-200">{m.queue.kindDiarize}</span>
             )}
             <span>
-              {m.queue.added} {formatDate(item.createdAt, locale)}
+              {m.queue.added} {formatDate(item.createdAt, locale, tz)}
             </span>
             {item.startedAt && (
               <span>
-                {m.queue.started} {formatDate(item.startedAt, locale)}
+                {m.queue.started} {formatDate(item.startedAt, locale, tz)}
               </span>
             )}
             {item.durationSec != null && (
@@ -71,7 +71,7 @@ export function QueueView() {
               {item.expectedFinishAt && (
                 <>
                   {" · "}
-                  {fmt(m.queue.finishAt, { t: new Date(item.expectedFinishAt).toLocaleTimeString(locale === "cs" ? "cs-CZ" : "en-GB", { hour: "2-digit", minute: "2-digit" }) })}
+                  {fmt(m.queue.finishAt, { t: formatClock(item.expectedFinishAt, locale, tz) })}
                 </>
               )}
             </div>

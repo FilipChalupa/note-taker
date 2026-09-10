@@ -33,8 +33,12 @@ export function intlLocale(locale: Locale): string {
   return locale === "cs" ? "cs-CZ" : "en-GB";
 }
 
-export function formatDate(iso: string, locale: Locale): string {
-  return new Date(iso).toLocaleString(intlLocale(locale), { dateStyle: "medium", timeStyle: "short" });
+export function formatDate(iso: string, locale: Locale, tz?: string): string {
+  return new Date(iso).toLocaleString(intlLocale(locale), { dateStyle: "medium", timeStyle: "short", timeZone: tz });
+}
+
+export function formatClock(iso: string, locale: Locale, tz?: string): string {
+  return new Date(iso).toLocaleTimeString(intlLocale(locale), { hour: "2-digit", minute: "2-digit", timeZone: tz });
 }
 
 /** Default label for a raw speaker id: SPEAKER_00 -> "Speaker 1" (by order of first appearance). */

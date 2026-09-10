@@ -23,6 +23,7 @@ from .config import settings
 from .models import TaskStatus
 from .pipeline import pipeline
 from .stats import stats
+from .metrics import metrics
 
 log = logging.getLogger("worker.queue")
 
@@ -367,6 +368,8 @@ class TaskQueue:
                     task.error = f"{type(exc).__name__}: {exc}"[:2000]
                     task.finished_at = _now()
                     self._update(task, TaskStatus.FAILED, task.progress)
+                started_at = datetime.fromisoformat(task.started_at) if task.started_at else datetime.now(timezone.utc)
+                metrics.record(kind=task.kind, audio_seconds=task.duration, processing_seconds=(datetime.now(timezone.utc) - started_at).total_seconds(), failed=True)
             finally:
                 with self._lock:
                     self._current = None
@@ -428,6 +431,7 @@ class TaskQueue:
         self.result_path(task.id).write_text(json.dumps(result, ensure_ascii=False))
         task.finished_at = _now()
         self._update(task, TaskStatus.COMPLETED, 100)
+        metrics.record(kind=task.kind, audio_seconds=task.duration, processing_seconds=time.time() - started, failed=False)
         log.info("Task %s completed in %.1fs (%d segments, %d speakers)",
                  task.id, time.time() - started, len(out["segments"]), len(out["speakers"]))
 

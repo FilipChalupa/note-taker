@@ -6,6 +6,7 @@ import { openAsBlob } from "node:fs";
 import { pipeline } from "node:stream/promises";
 import { Readable } from "node:stream";
 import type {
+  WorkerMetrics,
   TranscribeAccepted,
   TranscribeParams,
   TranscriptSegment,
@@ -55,6 +56,7 @@ async function request<T>(path: string, init: RequestInit = {}, timeoutMs = 15_0
 
 export const workerClient = {
   health: () => request<WorkerHealth>("/health", {}, 5_000),
+  metrics: () => request<WorkerMetrics>("/metrics", {}, 5_000),
 
   async submit(filePath: string, filename: string, params: TranscribeParams): Promise<TranscribeAccepted> {
     const form = new FormData();

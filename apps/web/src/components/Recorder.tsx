@@ -19,7 +19,7 @@ function pickMime(): string {
 
 /** In-browser recorder: MediaRecorder -> Blob -> POST /api/recordings. */
 export function Recorder() {
-  const { locale, m } = useI18n();
+  const { locale, m, tz } = useI18n();
   const router = useRouter();
   const [supported, setSupported] = useState(true);
   const [displaySupported, setDisplaySupported] = useState(false);
@@ -283,7 +283,7 @@ export function Recorder() {
         <div key={r.id} className="rounded-md border border-amber-300 bg-amber-50 p-4 text-sm dark:border-amber-800 dark:bg-amber-950" data-testid="recovery">
           <div className="font-medium text-amber-900 dark:text-amber-200">{m.record.recoveryTitle}</div>
           <div className="mt-1 text-amber-800 dark:text-amber-300">
-            {fmt(m.record.recoveryText, { when: formatDate(r.startedAt, locale), duration: formatDuration(r.chunks, m) })}
+            {fmt(m.record.recoveryText, { when: formatDate(r.startedAt, locale, tz), duration: formatDuration(r.chunks, m) })}
             {r.title && <> · „{r.title}“</>}
           </div>
           <div className="mt-2 flex gap-2">

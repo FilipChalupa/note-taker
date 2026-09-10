@@ -17,7 +17,9 @@ from .audio import ensure_ffmpeg
 from .config import settings
 from .models import (CudaInfo, Health, QueueInfo, TaskResult, TaskStatus,
                      TaskStatusResponse, TranscribeAccepted)
+from .metrics import metrics
 from .pipeline import pipeline
+from .stats import stats
 from .queue import PHASE_LABEL, task_queue
 
 logging.basicConfig(
@@ -216,6 +218,14 @@ async def diarize(
         segments=parsed,
     )
     return TranscribeAccepted(task_id=task.id, status=task.status, queue_position=task_queue.queue_position(task.id) or 0)
+
+
+@app.get("/metrics", dependencies=auth)
+def get_metrics() -> dict:
+    """Processing totals, per-day buckets and learned phase speeds."""
+    snap = metrics.snapshot()
+    snap["phase_rtf"] = dict(stats.rtf)
+    return snap
 
 
 @app.get("/tasks", dependencies=auth)

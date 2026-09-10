@@ -2,6 +2,18 @@ export type Locale = "cs" | "en";
 export const LOCALES: Locale[] = ["cs", "en"];
 export const DEFAULT_LOCALE: Locale = "en";
 export const LOCALE_COOKIE = "locale";
+export const TZ_COOKIE = "tz";
+
+/** IANA time zone if valid, otherwise null. */
+export function validTimeZone(tz: string | null | undefined): string | null {
+  if (!tz || tz.length > 64) return null;
+  try {
+    new Intl.DateTimeFormat("en", { timeZone: tz });
+    return tz;
+  } catch {
+    return null;
+  }
+}
 
 /** Replace `{name}` placeholders. */
 export function fmt(template: string, params: Record<string, string | number> = {}): string {
@@ -245,6 +257,8 @@ const cs = {
     hintsSave: "Uložit",
     hintsNote: "Použijí se při dalším zpracování.",
     searchMatches: "{n} výskytů pro „{q}“",
+    searchInTranscript: "Hledat v přepisu… (Ctrl+F)",
+    prevMatch: "Předchozí",
     nextMatch: "Další",
     speed: "Rychlost přehrávání",
     downloadAudio: "Stáhnout MP3",
@@ -264,6 +278,19 @@ const cs = {
     doneBody: "{title} · {n} mluvčí",
     failedTitle: "Zpracování selhalo",
     failedBody: "{title}",
+  },
+  metrics: {
+    title: "Statistika zpracování",
+    hours: "Přepsáno audia",
+    speed: "Průměrná rychlost",
+    speedUnit: "× reálný čas",
+    failures: "Chybovost",
+    runs: "{done} úloh hotovo · {failed} selhalo · {diar} jen mluvčí",
+    library: "{n} nahrávek v knihovně · {h} h audia · {s} pojmenovaných mluvčích",
+    last14: "Posledních 14 dní (hodiny audia za den)",
+    phases: "Rychlost fází: konverze {c}×, přepis {t}×, mluvčí {d}×",
+    offline: "Worker není dostupný, statistiky zpracování se zobrazí po připojení.",
+    none: "Zatím nic zpracováno.",
   },
   settings: {
     title: "Nastavení",
@@ -594,6 +621,8 @@ const en: Messages = {
     hintsSave: "Save",
     hintsNote: "Used the next time the recording is processed.",
     searchMatches: "{n} matches for “{q}”",
+    searchInTranscript: "Search in transcript… (Ctrl+F)",
+    prevMatch: "Previous",
     nextMatch: "Next",
     speed: "Playback speed",
     downloadAudio: "Download MP3",
@@ -613,6 +642,19 @@ const en: Messages = {
     doneBody: "{title} · {n} speakers",
     failedTitle: "Processing failed",
     failedBody: "{title}",
+  },
+  metrics: {
+    title: "Processing statistics",
+    hours: "Audio transcribed",
+    speed: "Average speed",
+    speedUnit: "× real time",
+    failures: "Failure rate",
+    runs: "{done} tasks done · {failed} failed · {diar} speakers-only",
+    library: "{n} recordings in the library · {h} h of audio · {s} named speakers",
+    last14: "Last 14 days (hours of audio per day)",
+    phases: "Phase speed: conversion {c}×, transcription {t}×, speakers {d}×",
+    offline: "Worker unreachable; processing statistics appear once it is connected.",
+    none: "Nothing processed yet.",
   },
   settings: {
     title: "Settings",

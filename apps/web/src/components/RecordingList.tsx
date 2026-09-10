@@ -41,7 +41,7 @@ function buildHref(q: RecordingListQuery, patch: Partial<RecordingListQuery>): s
 }
 
 export function RecordingList({ initial, tags, query }: { initial: RecordingPage; tags: TagCount[]; query: RecordingListQuery }) {
-  const { locale, m } = useI18n();
+  const { locale, m, tz } = useI18n();
   const router = useRouter();
   const toast = useToast();
   const [data, setData] = useState(initial);
@@ -345,7 +345,7 @@ export function RecordingList({ initial, tags, query }: { initial: RecordingPage
                       </div>
                       {rec.tags.length > 0 && <TagChips tags={rec.tags} />}
                       <div className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-zinc-500">
-                        <span>{formatDate(rec.createdAt, locale)}</span>
+                        <span>{formatDate(rec.createdAt, locale, tz)}</span>
                         {rec.durationSec != null && <span>{formatDuration(rec.durationSec, m)}</span>}
                         {rec.speakerCount != null && <span>{rec.speakerCount} {m.list.speakers.toLowerCase()}</span>}
                         {rec.archived && <span>{m.listx.archivedBadge}</span>}
@@ -416,7 +416,7 @@ export function RecordingList({ initial, tags, query }: { initial: RecordingPage
                         <div className="text-xs text-zinc-500">{rec.originalFilename}</div>
                         {rec.tags.length > 0 && <TagChips tags={rec.tags} />}
                       </td>
-                      <td className="whitespace-nowrap px-4 py-2.5 text-zinc-600 dark:text-zinc-400">{formatDate(rec.createdAt, locale)}</td>
+                      <td className="whitespace-nowrap px-4 py-2.5 text-zinc-600 dark:text-zinc-400">{formatDate(rec.createdAt, locale, tz)}</td>
                       <td className="whitespace-nowrap px-4 py-2.5">{formatDuration(rec.durationSec, m)}</td>
                       <td className="px-4 py-2.5">{rec.speakerCount ?? "–"}</td>
                       <td className="px-4 py-2.5">

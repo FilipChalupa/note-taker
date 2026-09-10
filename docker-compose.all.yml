@@ -46,6 +46,7 @@ services:
       DATA_DIR: /data
       IMPORT_DIR: /data/import
       DEFAULT_LANGUAGE: ${DEFAULT_LANGUAGE:-cs}
+      TZ: ${TZ:-Europe/Prague}
     volumes:
       - web-data:/data
       - ./import:/data/import

@@ -61,7 +61,7 @@ test("voices are renamed and deleted through dialogs; single delete in the list 
   await page.getByTestId("voices").locator("li", { hasText: "Renamed Voice" }).getByRole("button", { name: "Delete" }).click();
   await expect(page.getByRole("dialog")).toContainText("Renamed Voice");
   await page.getByRole("dialog").getByRole("button", { name: "Confirm" }).click();
-  await expect(page.getByTestId("toast-success")).toBeVisible();
+  await expect(page.getByTestId("toast-success").last()).toBeVisible();
   expect(((await (await request.get("/api/voices")).json()) as { name: string }[]).some((v) => v.name === "Renamed Voice")).toBeFalsy();
 
   const other = await uploadRecording(request, "Single delete");

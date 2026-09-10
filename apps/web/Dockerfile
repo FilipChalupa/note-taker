@@ -19,7 +19,8 @@ RUN pnpm --filter @note-taker/web build
 # ---- runtime ----
 FROM node:22-bookworm-slim AS runner
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3000 HOSTNAME=0.0.0.0 DATA_DIR=/data
-RUN groupadd -g 1001 nodejs && useradd -u 1001 -g nodejs -m nextjs \
+RUN apt-get update && apt-get install -y --no-install-recommends tzdata && rm -rf /var/lib/apt/lists/* \
+ && groupadd -g 1001 nodejs && useradd -u 1001 -g nodejs -m nextjs \
  && mkdir -p /data && chown nextjs:nodejs /data
 WORKDIR /app
 COPY --from=build --chown=nextjs:nodejs /repo/apps/web/.next/standalone ./

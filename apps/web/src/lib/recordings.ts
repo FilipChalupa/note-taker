@@ -202,6 +202,18 @@ export async function bulkAction(ids: string[], action: BulkAction, tag?: string
   return n;
 }
 
+/** Library-wide counts from the web database (independent of the worker's own metrics). */
+export function getLibraryStats(): { recordings: number; completed: number; failed: number; audioSeconds: number; speakersNamed: number } {
+  const rows = db.select({ status: recordings.status, durationSec: recordings.durationSec, speakerNames: recordings.speakerNames }).from(recordings).all();
+  return {
+    recordings: rows.length,
+    completed: rows.filter((r) => r.status === "COMPLETED").length,
+    failed: rows.filter((r) => r.status === "FAILED").length,
+    audioSeconds: rows.reduce((a, r) => a + (r.durationSec ?? 0), 0),
+    speakersNamed: rows.reduce((a, r) => a + Object.keys(r.speakerNames ?? {}).length, 0),
+  };
+}
+
 /** Distinct tags with usage counts, most used first. */
 export function listTags(): TagCount[] {
   const counts = new Map<string, number>();

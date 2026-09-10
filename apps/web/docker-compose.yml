@@ -16,6 +16,8 @@ services:
     environment:
       DATA_DIR: /data
       IMPORT_DIR: /data/import
+      # Server-side date formatting before the browser reports its zone
+      TZ: ${TZ:-Europe/Prague}
     volumes:
       - ./data:/data
       - ./import:/data/import

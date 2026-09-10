@@ -25,6 +25,7 @@ export function exportTranscript(
   rec: RecordingDetail,
   format: ExportFormat,
   locale: Locale,
+  tz?: string,
 ): { body: string; mime: string; ext: string } {
   const m = messages[locale];
   const name = (id: string) => speakerLabel(id, rec.speakers, rec.speakerNames, m);
@@ -41,7 +42,7 @@ export function exportTranscript(
       const head = [
         `# ${rec.title}`,
         "",
-        `- ${m.export.date}: ${new Date(rec.createdAt).toLocaleString(intlLocale(locale))}`,
+        `- ${m.export.date}: ${new Date(rec.createdAt).toLocaleString(intlLocale(locale), { timeZone: tz })}`,
         `- ${m.export.duration}: ${clock(rec.durationSec ?? 0)}`,
         `- ${m.export.speakers}: ${rec.speakers.map(name).join(", ") || "–"}`,
         ...(rec.tags.length ? [`- ${m.tags.label}: ${rec.tags.join(", ")}`] : []),

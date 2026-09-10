@@ -37,11 +37,11 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const { locale, m } = await getMessages();
+  const { locale, m, tz } = await getMessages();
   return (
     <html lang={locale}>
       <body>
-        <I18nProvider locale={locale}>
+        <I18nProvider locale={locale} tz={tz}>
           <ToastProvider>
           <PlayerProvider>
           <DropProvider>

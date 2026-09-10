@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { AppSettings, StorageInfo, Voice } from "@note-taker/shared";
+import type { AppSettings, StorageInfo, Voice, WorkerMetrics } from "@note-taker/shared";
 import { fmt } from "@/lib/i18n";
 import { useI18n } from "@/lib/i18n/client";
 import { formatBytes } from "@/lib/format";
@@ -10,7 +10,79 @@ import { Dialog } from "./Dialog";
 import { useToast } from "./Toast";
 import { api } from "@/lib/api-client";
 
-export function SettingsView({ initial, storage, voices: initialVoices }: { initial: AppSettings; storage: StorageInfo; voices: Voice[] }) {
+type LibraryStats = { recordings: number; completed: number; failed: number; audioSeconds: number; speakersNamed: number };
+
+function MetricsSection({ library, worker }: { library: LibraryStats; worker: WorkerMetrics | null }) {
+  const { m } = useI18n();
+  const hours = (sec: number) => (sec / 3600).toFixed(1);
+  const days = worker?.days.slice(-14) ?? [];
+  const max = Math.max(1, ...days.map((d) => d.audio_seconds));
+  const t = worker?.totals;
+  return (
+    <section className="card p-5" data-testid="metrics">
+      <h2 className="font-semibold">{m.metrics.title}</h2>
+      <p className="mt-1 text-sm text-zinc-500">
+        {fmt(m.metrics.library, { n: library.recordings, h: hours(library.audioSeconds), s: library.speakersNamed })}
+      </p>
+      {!worker ? (
+        <p className="mt-3 text-sm text-amber-700 dark:text-amber-300">{m.metrics.offline}</p>
+      ) : !t || t.completed + t.failed === 0 ? (
+        <p className="mt-3 text-sm text-zinc-500">{m.metrics.none}</p>
+      ) : (
+        <>
+          <dl className="mt-4 grid grid-cols-3 gap-4">
+            <div>
+              <dt className="text-xs text-zinc-500">{m.metrics.hours}</dt>
+              <dd className="text-2xl font-semibold tabular-nums">{hours(t.audio_seconds)} h</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-zinc-500">{m.metrics.speed}</dt>
+              <dd className="text-2xl font-semibold tabular-nums">
+                {worker.speed_rtf ?? "–"} <span className="text-sm font-normal text-zinc-500">{m.metrics.speedUnit}</span>
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-zinc-500">{m.metrics.failures}</dt>
+              <dd className={`text-2xl font-semibold tabular-nums ${worker.failure_rate > 0.1 ? "text-red-600" : ""}`}>{Math.round(worker.failure_rate * 100)} %</dd>
+            </div>
+          </dl>
+          <p className="mt-2 text-xs text-zinc-500">{fmt(m.metrics.runs, { done: t.completed, failed: t.failed, diar: t.diarize_only })}</p>
+          {days.length > 0 && (
+            <div className="mt-4">
+              <div className="mb-1 text-xs text-zinc-500">{m.metrics.last14}</div>
+              <div className="flex h-20 items-end gap-1" role="img" aria-label={m.metrics.last14}>
+                {days.map((d) => (
+                  <div key={d.date} className="flex flex-1 flex-col items-center justify-end" title={`${d.date}: ${hours(d.audio_seconds)} h · ${d.completed} ✓ ${d.failed} ✗`}>
+                    <div className={`w-full rounded-t ${d.failed ? "bg-amber-400" : "bg-blue-500"}`} style={{ height: `${Math.max(2, (100 * d.audio_seconds) / max)}%` }} />
+                  </div>
+                ))}
+              </div>
+              <div className="mt-0.5 flex justify-between text-[10px] text-zinc-400">
+                <span>{days[0].date.slice(5)}</span>
+                <span>{days[days.length - 1].date.slice(5)}</span>
+              </div>
+            </div>
+          )}
+          <p className="mt-3 text-xs text-zinc-500">
+            {fmt(m.metrics.phases, { c: Math.round(worker.phase_rtf.CONVERTING ?? 0), t: Math.round(worker.phase_rtf.TRANSCRIBING ?? 0), d: Math.round(worker.phase_rtf.DIARIZING ?? 0) })}
+          </p>
+        </>
+      )}
+    </section>
+  );
+}
+
+export function SettingsView({
+  initial,
+  storage,
+  voices: initialVoices,
+  metrics,
+}: {
+  initial: AppSettings;
+  storage: StorageInfo;
+  voices: Voice[];
+  metrics: { library: LibraryStats; worker: WorkerMetrics | null };
+}) {
   const { m } = useI18n();
   const toast = useToast();
   const fail = (err: unknown) => toast.error(fmt(m.toast.failed, { detail: (err as Error).message }));
@@ -74,6 +146,8 @@ export function SettingsView({ initial, storage, voices: initialVoices }: { init
           {state === "saved" && <span className="text-sm text-emerald-600">{m.settings.saved}</span>}
         </div>
       </section>
+
+      <MetricsSection library={metrics.library} worker={metrics.worker} />
 
       <section className="card p-5">
         <h2 className="font-semibold">{m.voices.title}</h2>
