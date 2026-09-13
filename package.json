@@ -9,6 +9,8 @@
     "typecheck": "pnpm -r --if-present typecheck",
     "lint": "pnpm -r --if-present lint",
     "test:worker": "cd apps/worker && python3 -m pytest",
-    "test:e2e": "pnpm --filter @note-taker/web test:e2e"
+    "test:e2e": "pnpm --filter @note-taker/web test:e2e",
+    "dev:intake": "cd apps/intake && npm run dev",
+    "test:intake": "cd apps/intake && node --test \"test/*.test.mjs\""
   }
 }

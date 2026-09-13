@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="theme-color" content="#2563eb" />
+    <title>Upload</title>
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="stylesheet" href="/app.css" />
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="wrap row between">
+        <strong class="brand"><img src="/icon.svg" alt="" width="22" height="22" /> <span data-bind="title">Note Taker</span></strong>
+        <div class="lang" role="group" aria-label="Language">
+          <button type="button" data-lang="cs">CS</button>
+          <button type="button" data-lang="en">EN</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="wrap">
+      <noscript><p class="card">This page needs JavaScript.</p></noscript>
+
+      <section id="gate" class="card" hidden>
+        <h1 data-i18n="gateTitle">Access code</h1>
+        <p class="muted" data-i18n="gateText">Enter the code you received to upload recordings.</p>
+        <form id="gate-form" class="row gap">
+          <input id="gate-code" class="input" type="password" autocomplete="off" required data-i18n-placeholder="gateCode" aria-label="Code" />
+          <button class="btn primary" type="submit" data-i18n="gateSubmit">Continue</button>
+        </form>
+        <p id="gate-error" class="error" role="alert" hidden></p>
+      </section>
+
+      <section id="app" hidden>
+        <h1 data-i18n="heading">Send a recording</h1>
+        <p class="muted" data-i18n="intro">Upload an audio or video file, or record right here. The recording is handed over for transcription.</p>
+
+        <div id="recovery"></div>
+
+        <div class="tabs" role="tablist">
+          <button type="button" role="tab" id="tab-upload" aria-controls="panel-upload" aria-selected="true" data-i18n="tabUpload">Upload file</button>
+          <button type="button" role="tab" id="tab-record" aria-controls="panel-record" aria-selected="false" data-i18n="tabRecord">Record</button>
+        </div>
+
+        <div class="card">
+          <div class="grid2">
+            <label class="field">
+              <span data-i18n="titleLabel">Meeting name (optional)</span>
+              <input id="meta-title" class="input" maxlength="200" data-i18n-placeholder="titlePlaceholder" />
+            </label>
+            <label class="field">
+              <span data-i18n="languageLabel">Language</span>
+              <select id="meta-language" class="input"></select>
+            </label>
+          </div>
+          <label class="field">
+            <span data-i18n="noteLabel">Note (optional)</span>
+            <textarea id="meta-note" class="input" rows="2" maxlength="5000" data-i18n-placeholder="notePlaceholder"></textarea>
+          </label>
+
+          <div id="panel-upload" role="tabpanel" aria-labelledby="tab-upload">
+            <label id="dropzone" class="dropzone" tabindex="0">
+              <input id="file-input" type="file" multiple hidden
+                accept=".mp3,.mpga,.m4a,.m4b,.wav,.aac,.ogg,.oga,.opus,.flac,.wma,.aif,.aiff,.mka,.webm,.mp4,.m4v,.mov,.mkv,.avi,.mpg,.mpeg,.ts,.3gp,.amr,audio/*,video/*" />
+              <span class="drop-icon" aria-hidden="true">🎧</span>
+              <strong data-i18n="dropHere">Drop files here or click to choose</strong>
+              <span class="muted small" data-i18n="formats">MP3, M4A, WAV, AAC, OGG, FLAC, MKA, MP4/MOV/MKV…</span>
+              <span class="muted small" id="max-size"></span>
+            </label>
+          </div>
+
+          <div id="panel-record" role="tabpanel" aria-labelledby="tab-record" hidden>
+            <fieldset id="sources" class="field" hidden>
+              <legend data-i18n="source">Audio source</legend>
+              <label class="radio"><input type="radio" name="source" value="mic" checked /> <span data-i18n="sourceMic">Microphone</span></label>
+              <label class="radio"><input type="radio" name="source" value="display" /> <span data-i18n="sourceDisplay">Browser tab or screen</span></label>
+              <label class="radio"><input type="radio" name="source" value="both" /> <span data-i18n="sourceBoth">Microphone + tab/screen</span></label>
+              <p class="muted small" id="display-hint" hidden data-i18n="sourceDisplayHint">Pick the meeting tab and tick “Share audio”.</p>
+            </fieldset>
+            <label class="field" id="mic-field">
+              <span data-i18n="mic">Microphone</span>
+              <select id="mic" class="input"></select>
+            </label>
+            <div class="recorder">
+              <div id="rec-timer" class="timer">0:00:00</div>
+              <div id="rec-state" class="muted small" aria-live="polite">&nbsp;</div>
+              <div class="meter"><div id="rec-level"></div></div>
+              <div class="row gap center">
+                <button type="button" id="rec-start" class="btn primary big" data-i18n="start">● Start recording</button>
+                <button type="button" id="rec-pause" class="btn big" hidden data-i18n="pause">❚❚ Pause</button>
+                <button type="button" id="rec-resume" class="btn big" hidden data-i18n="resume">▶ Resume</button>
+                <button type="button" id="rec-stop" class="btn primary big" hidden data-i18n="stop">■ Stop and send</button>
+                <button type="button" id="rec-discard" class="btn danger big" hidden data-i18n="discard">Discard</button>
+              </div>
+              <p id="rec-error" class="error" role="alert" hidden></p>
+              <p class="muted small center" data-i18n="autosave">Saved continuously in this browser, a closed tab does not lose the recording.</p>
+            </div>
+          </div>
+        </div>
+
+        <h2 id="queue-heading" class="small-heading" hidden data-i18n="queue">Uploads</h2>
+        <ul id="queue" class="queue" aria-live="polite"></ul>
+      </section>
+    </main>
+
+    <div id="drop-overlay" class="drop-overlay" hidden>
+      <div><span aria-hidden="true">🎧</span><strong data-i18n="dropAnywhere">Drop to upload</strong></div>
+    </div>
+  </body>
+</html>

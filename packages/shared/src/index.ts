@@ -284,6 +284,18 @@ export interface TagCount {
   count: number;
 }
 
+/** State of the pull from the public intake service. */
+export interface IntakeStatus {
+  enabled: boolean;
+  url: string | null;
+  lastRunAt: string | null;
+  lastError: string | null;
+  /** Items the intake reported as ready at the last check. */
+  pending: number | null;
+  collected: number;
+  running: boolean;
+}
+
 export interface ImportDirInfo {
   path: string | null;
   enabled: boolean;

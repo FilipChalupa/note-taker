@@ -1,0 +1,13 @@
+{
+  "name": "@note-taker/intake",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Public upload-only frontend. Receives recordings and holds them until the internal web app collects them. No dependencies.",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node server.mjs",
+    "dev": "DATA_DIR=./data INTAKE_COLLECT_TOKEN=dev-token node --watch server.mjs",
+    "test": "node --test \"test/*.test.mjs\""
+  }
+}

@@ -1,0 +1,23 @@
+# Public upload page. Run it on a machine reachable from the internet (VPS, cloud), behind HTTPS.
+#   cp .env.example .env    # set INTAKE_COLLECT_TOKEN (and optionally INTAKE_UPLOAD_CODE)
+#   docker compose up -d --build
+services:
+  intake:
+    build: .
+    image: note-taker-intake:latest
+    container_name: note-taker-intake
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATA_DIR: /data
+    ports:
+      - "${PORT:-8080}:8080"
+    volumes:
+      - ./data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL

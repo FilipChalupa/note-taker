@@ -20,6 +20,8 @@ export function ensurePollerStarted(): void {
       const { syncAll } = await import("@/lib/recordings");
       const { scanImportDir } = await import("@/lib/importer");
       scanImportDir();
+      const { maybeCollectIntake } = await import("@/lib/intake");
+      void maybeCollectIntake();
       await syncAll();
     } catch (err) {
       console.error("[poller] tick failed:", (err as Error).message);

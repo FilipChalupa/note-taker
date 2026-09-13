@@ -64,6 +64,13 @@ export const voices = sqliteTable("voices", {
   updatedAt: text("updated_at").notNull(),
 });
 
+/** Items pulled from the public intake service; guards against duplicates when an acknowledgement fails. */
+export const intakeImports = sqliteTable("intake_imports", {
+  intakeId: text("intake_id").primaryKey(),
+  recordingId: text("recording_id").notNull(),
+  collectedAt: text("collected_at").notNull(),
+});
+
 export const pushSubscriptions = sqliteTable("push_subscriptions", {
   endpoint: text("endpoint").primaryKey(),
   subscription: text("subscription", { mode: "json" }).$type<{ endpoint: string; keys: { p256dh: string; auth: string } }>().notNull(),

@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import type { AppSettings, StorageInfo, Voice, WorkerMetrics } from "@note-taker/shared";
+import type { AppSettings, IntakeStatus, StorageInfo, Voice, WorkerMetrics } from "@note-taker/shared";
+import { formatDate } from "@/lib/format";
 import { fmt } from "@/lib/i18n";
 import { useI18n } from "@/lib/i18n/client";
 import { formatBytes } from "@/lib/format";
@@ -72,16 +73,58 @@ function MetricsSection({ library, worker }: { library: LibraryStats; worker: Wo
   );
 }
 
+function IntakeSection({ initial }: { initial: IntakeStatus }) {
+  const { locale, m, tz } = useI18n();
+  const toast = useToast();
+  const [status, setStatus] = useState(initial);
+  const [busy, setBusy] = useState(false);
+  const collect = async () => {
+    setBusy(true);
+    try {
+      setStatus(await api<IntakeStatus>(m, "/api/intake", { method: "POST" }));
+    } catch (err) {
+      toast.error(fmt(m.toast.failed, { detail: (err as Error).message }));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section className="card p-5" data-testid="intake">
+      <h2 className="font-semibold">{m.intake.title}</h2>
+      {!status.enabled ? (
+        <p className="mt-1 text-sm text-zinc-500">{m.intake.disabled}</p>
+      ) : (
+        <>
+          <p className="mt-1 text-sm text-zinc-500">{m.intake.help}</p>
+          <p className="mt-2 text-sm">
+            <code className="text-xs">{status.url}</code>
+          </p>
+          <p className="mt-1 text-xs text-zinc-500">
+            {status.lastRunAt ? fmt(m.intake.lastRun, { when: formatDate(status.lastRunAt, locale, tz) }) : m.intake.never}
+            {status.pending != null && <> · {fmt(m.intake.waiting, { n: status.pending })}</>} · {fmt(m.intake.collected, { n: status.collected })}
+          </p>
+          {status.lastError && <p className="mt-1 text-xs text-red-600">{fmt(m.intake.error, { detail: status.lastError })}</p>}
+          <button className="btn mt-3 py-1 text-xs" onClick={collect} disabled={busy || status.running}>
+            ⇣ {m.intake.collectNow}
+          </button>
+        </>
+      )}
+    </section>
+  );
+}
+
 export function SettingsView({
   initial,
   storage,
   voices: initialVoices,
   metrics,
+  intake,
 }: {
   initial: AppSettings;
   storage: StorageInfo;
   voices: Voice[];
   metrics: { library: LibraryStats; worker: WorkerMetrics | null };
+  intake: IntakeStatus;
 }) {
   const { m } = useI18n();
   const toast = useToast();
@@ -214,6 +257,8 @@ export function SettingsView({
       >
         <p>{voiceDialog?.kind === "delete" ? fmt(m.voices.confirmDelete, { name: voiceDialog.voice.name }) : ""}</p>
       </Dialog>
+
+      <IntakeSection initial={intake} />
 
       <section className="card p-5">
         <h2 className="font-semibold">{m.importDir.title}</h2>

@@ -6,6 +6,7 @@ Monorepo with two independently deployable services:
 | --- | --- | --- | --- |
 | **Worker** (GPU transcription) | [`apps/worker`](apps/worker) | Python, FastAPI, WhisperX (faster-whisper/CTranslate2), pyannote diarization, ffmpeg | local PC with an NVIDIA GPU (WSL2) |
 | **Web** (UI + gateway) | [`apps/web`](apps/web) | Next.js 16 (App Router), Drizzle ORM + SQLite, Tailwind | homelab, in Docker |
+| **Intake** (optional public upload page) | [`apps/intake`](apps/intake) | Node.js, no dependencies | internet-facing VPS / cloud |
 | Shared types | [`packages/shared`](packages/shared) | TypeScript types for the API contract | – |
 
 ```
@@ -14,6 +15,17 @@ Monorepo with two independently deployable services:
 │              │ ◀──────── │  SQLite + files    │ ◀────────────────── │  ffmpeg → WhisperX →    │
 └──────────────┘  polling  │  poller every 3 s  │  status / result    │  pyannote               │
                            └────────────────────┘                     └────────────────────────┘
+```
+
+The web app and the worker are meant to stay inside the LAN. If people outside should be able to send recordings,
+run the optional **intake** page on a public host: it only accepts uploads and holds them until the web app
+**pulls** them over an outbound connection with a secret token. Nothing connects into the LAN, and the intake cannot
+see recordings, transcripts, the queue or the GPU. See [`apps/intake/README.md`](apps/intake/README.md).
+
+```
+ Internet                                 │  LAN
+ uploader ──HTTPS──▶ apps/intake          │   apps/web ──▶ apps/worker (GPU)
+                     (files until pulled) ◀──┼─── outbound pull, bearer token
 ```
 
 Flow: the user uploads a file to the web app → the web app stores it and forwards it to the worker →
@@ -48,6 +60,7 @@ reachable again.
 
 ```bash
 pnpm test:worker     # pytest: queue, ETA stats, hallucination filter, API (fake ML pipeline, real ffmpeg)
+pnpm test:intake     # node:test: upload protocol, limits, access code, collector API
 pnpm build:web && pnpm test:e2e   # Playwright against the production build + a stub worker
 ```
 
@@ -68,6 +81,10 @@ Sample data shown below is fictional.
 | Full-text search | Record in the browser |
 | --- | --- |
 | ![Search results with snippets](docs/screenshots/search.png) | ![Recorder with source selection](docs/screenshots/record.png) |
+
+| Public upload page (optional intake) |
+| --- |
+| ![Upload-only page with chunked upload progress](docs/screenshots/intake.png) |
 
 ## Quick start
 
@@ -97,6 +114,14 @@ The UI is served on `http://<homelab>:3000`; data (SQLite + audio) lives in `app
 ```bash
 cp apps/worker/.env.example apps/worker/.env   # HF_TOKEN
 docker compose -f docker-compose.all.yml up -d --build
+```
+
+### 4. Optional public upload page
+
+```bash
+cd apps/intake && cp .env.example .env   # INTAKE_COLLECT_TOKEN=$(openssl rand -hex 32)
+docker compose up -d --build              # on the public host, behind HTTPS
+# apps/web/.env: INTAKE_URL=https://upload.example.com  INTAKE_TOKEN=<same token>
 ```
 
 ### Development

@@ -48,6 +48,10 @@ The DB schema is created automatically on startup (`src/lib/db/index.ts`, `CREAT
 | `MAX_UPLOAD_MB` | `2048` | upload size limit |
 | `IMPORT_DIR` | – | watch folder; media files copied there are imported automatically (Docker: `./import`) |
 | `IMPORT_LANGUAGE` | `DEFAULT_LANGUAGE` | language for imported files |
+| `INTAKE_URL` | – | public intake page to pull uploads from (optional) |
+| `INTAKE_TOKEN` | – | same value as `INTAKE_COLLECT_TOKEN` on the intake |
+| `INTAKE_POLL_SECONDS` | `30` | how often to check the intake |
+| `INTAKE_TAGS` | `intake` | tags for recordings that arrive through the intake |
 
 ## Known voices
 
@@ -82,6 +86,7 @@ trimmed to Whisper's prompt budget (~900 characters) and sent as `initial_prompt
 | `POST` | `/share` | Web Share Target endpoint (multipart `media`, `title`, `text`) |
 | `POST` | `/api/settings/glossary` | `{ terms }` – append terms to the glossary (used by the correction suggestions) |
 | `GET` | `/api/tags` | tags with usage counts |
+| `GET` / `POST` | `/api/intake` | intake pull status / collect now |
 | `GET` / `PATCH` / `DELETE` | `/api/voices[/:id]` | known voices learned from named speakers |
 | `POST` | `/api/recordings/:id/speakers/apply-suggestions` | name speakers after suggested known voices |
 | `GET` / `PUT` | `/api/settings` | global glossary |

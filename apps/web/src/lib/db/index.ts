@@ -57,6 +57,11 @@ CREATE TABLE IF NOT EXISTS settings (
   value TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS intake_imports (
+  intake_id TEXT PRIMARY KEY,
+  recording_id TEXT NOT NULL,
+  collected_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS push_subscriptions (
   endpoint TEXT PRIMARY KEY,
   subscription TEXT NOT NULL,

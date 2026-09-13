@@ -17,6 +17,11 @@ export const config = {
   importDir: process.env.IMPORT_DIR ? path.resolve(process.env.IMPORT_DIR) : null,
   /** Language assigned to imported files. */
   importLanguage: process.env.IMPORT_LANGUAGE ?? process.env.DEFAULT_LANGUAGE ?? "cs",
+  /** Optional public intake service to pull uploads from (the web app connects out, nothing connects in). */
+  intakeUrl: (process.env.INTAKE_URL ?? "").replace(/\/+$/, "") || null,
+  intakeToken: process.env.INTAKE_TOKEN || null,
+  intakePollMs: num("INTAKE_POLL_SECONDS", 30) * 1000,
+  intakeTags: (process.env.INTAKE_TAGS ?? "intake").split(",").map((t) => t.trim()).filter(Boolean),
 } as const;
 
 export const SUPPORTED_MEDIA = /\.(mp3|mpga|m4a|m4b|wav|aac|ogg|oga|opus|flac|wma|aiff?|mka|webm|mp4|m4v|mov|mkv|avi|mpe?g|ts|3gp|amr)$/i;

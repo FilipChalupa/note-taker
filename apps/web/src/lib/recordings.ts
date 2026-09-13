@@ -277,7 +277,7 @@ export async function createRecording(input: CreateRecordingInput): Promise<Reco
 /** Register an audio file that is already on disk (watch-folder import). The file is moved into DATA_DIR. */
 export function createRecordingFromPath(
   sourcePath: string,
-  input: { title?: string; language: string; hints?: string; tags?: string | string[] },
+  input: { title?: string; language: string; hints?: string; tags?: string | string[]; notes?: string; originalFilename?: string },
 ): RecordingDetail {
   const id = randomUUID();
   const dir = recordingDir(id);
@@ -290,7 +290,7 @@ export function createRecordingFromPath(
     fs.copyFileSync(sourcePath, originalPath);
     fs.unlinkSync(sourcePath);
   }
-  return insertRecording({ id, originalPath, originalFilename: path.basename(sourcePath), title: input.title ?? "", ...input });
+  return insertRecording({ id, originalPath, ...input, originalFilename: input.originalFilename || path.basename(sourcePath), title: input.title ?? "" });
 }
 
 function insertRecording(input: {

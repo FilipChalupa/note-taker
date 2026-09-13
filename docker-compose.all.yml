@@ -47,13 +47,40 @@ services:
       IMPORT_DIR: /data/import
       DEFAULT_LANGUAGE: ${DEFAULT_LANGUAGE:-cs}
       TZ: ${TZ:-Europe/Prague}
+      INTAKE_URL: ${INTAKE_URL:-}
+      INTAKE_TOKEN: ${INTAKE_TOKEN:-}
     volumes:
       - web-data:/data
       - ./import:/data/import
     ports:
       - "${WEB_PORT:-3000}:3000"
 
+  # Optional public upload page. Start with: docker compose -f docker-compose.all.yml --profile intake up -d
+  intake:
+    profiles: ["intake"]
+    build:
+      context: ./apps/intake
+    image: note-taker-intake:latest
+    container_name: note-taker-intake
+    restart: unless-stopped
+    environment:
+      INTAKE_COLLECT_TOKEN: ${INTAKE_TOKEN:?set INTAKE_TOKEN to use the intake profile}
+      INTAKE_UPLOAD_CODE: ${INTAKE_UPLOAD_CODE:-}
+      DATA_DIR: /data
+    volumes:
+      - intake-data:/data
+    ports:
+      - "${INTAKE_PORT:-8080}:8080"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
 volumes:
+  intake-data:
   worker-data:
   worker-models:
   web-data:
