@@ -57,6 +57,30 @@ CREATE TABLE IF NOT EXISTS settings (
   value TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS api_tokens (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  token_hash TEXT NOT NULL UNIQUE,
+  prefix TEXT NOT NULL,
+  scopes TEXT NOT NULL DEFAULT '[]',
+  tag_filter TEXT,
+  created_at TEXT NOT NULL,
+  expires_at TEXT,
+  last_used_at TEXT,
+  revoked_at TEXT,
+  requests INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS audit_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at TEXT NOT NULL,
+  token_id TEXT,
+  token_name TEXT,
+  action TEXT NOT NULL,
+  recording_id TEXT,
+  status INTEGER NOT NULL,
+  detail TEXT
+);
+CREATE INDEX IF NOT EXISTS audit_at_idx ON audit_log(at DESC);
 CREATE TABLE IF NOT EXISTS intake_imports (
   intake_id TEXT PRIMARY KEY,
   recording_id TEXT NOT NULL,
@@ -89,20 +113,31 @@ function open(): Db {
   sqlite.pragma("synchronous = NORMAL");
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(DDL);
-  // Lightweight forward migrations for databases created by older versions
-  const cols = new Set((sqlite.prepare("PRAGMA table_info(recordings)").all() as { name: string }[]).map((c) => c.name));
-  if (!cols.has("warning")) sqlite.exec("ALTER TABLE recordings ADD COLUMN warning TEXT");
-  if (!cols.has("task_kind")) sqlite.exec("ALTER TABLE recordings ADD COLUMN task_kind TEXT NOT NULL DEFAULT 'transcribe'");
-  if (!cols.has("hints")) sqlite.exec("ALTER TABLE recordings ADD COLUMN hints TEXT");
-  if (!cols.has("tags")) sqlite.exec("ALTER TABLE recordings ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'");
-  if (!cols.has("notes")) sqlite.exec("ALTER TABLE recordings ADD COLUMN notes TEXT");
-  if (!cols.has("favorite")) sqlite.exec("ALTER TABLE recordings ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0");
-  if (!cols.has("archived")) sqlite.exec("ALTER TABLE recordings ADD COLUMN archived INTEGER NOT NULL DEFAULT 0");
-  if (!cols.has("speaker_embeddings")) sqlite.exec("ALTER TABLE recordings ADD COLUMN speaker_embeddings TEXT");
-  if (!cols.has("speaker_suggestions")) sqlite.exec("ALTER TABLE recordings ADD COLUMN speaker_suggestions TEXT NOT NULL DEFAULT '{}'");
+  // Lightweight forward migrations for databases created by older versions.
+  // Several processes (and Next.js build workers) can open the database at once, so a column another
+  // process just added is not an error.
+  const addColumn = (name: string, ddl: string) => {
+    const cols = new Set((sqlite.prepare("PRAGMA table_info(recordings)").all() as { name: string }[]).map((c) => c.name));
+    if (cols.has(name)) return;
+    try {
+      sqlite.exec(`ALTER TABLE recordings ADD COLUMN ${ddl}`);
+    } catch (err) {
+      if (!/duplicate column name/i.test((err as Error).message)) throw err;
+    }
+  };
+  addColumn("warning", "warning TEXT");
+  addColumn("task_kind", "task_kind TEXT NOT NULL DEFAULT 'transcribe'");
+  addColumn("hints", "hints TEXT");
+  addColumn("tags", "tags TEXT NOT NULL DEFAULT '[]'");
+  addColumn("notes", "notes TEXT");
+  addColumn("favorite", "favorite INTEGER NOT NULL DEFAULT 0");
+  addColumn("archived", "archived INTEGER NOT NULL DEFAULT 0");
+  addColumn("speaker_embeddings", "speaker_embeddings TEXT");
+  addColumn("speaker_suggestions", "speaker_suggestions TEXT NOT NULL DEFAULT '{}'");
+  addColumn("owner_token_id", "owner_token_id TEXT");
   const hadFts = sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='recordings_fts'").get();
   sqlite.exec(FTS_DDL);
-  if (!hadFts) {
+  if (!hadFts && (sqlite.prepare("SELECT COUNT(*) AS n FROM recordings_fts").get() as { n: number }).n === 0) {
     // First run with FTS: index existing transcripts
     const rows = sqlite.prepare("SELECT id, title, segments FROM recordings WHERE status = 'COMPLETED'").all() as { id: string; title: string; segments: string }[];
     const ins = sqlite.prepare("INSERT INTO recordings_fts (recording_id, title, body) VALUES (?, ?, ?)");

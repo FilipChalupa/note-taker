@@ -44,3 +44,6 @@ apps/web/test-results/
 # Intake runtime data
 apps/intake/data/
 apps/intake/.env
+
+# MCP server build output
+apps/mcp/dist/

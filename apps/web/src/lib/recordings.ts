@@ -48,6 +48,7 @@ type SummaryRow = Pick<
   | "tags"
   | "favorite"
   | "archived"
+  | "ownerTokenId"
   | "createdAt"
   | "updatedAt"
 >;
@@ -131,6 +132,7 @@ function selectSummaryRows(): SummaryRow[] {
       tags: recordings.tags,
       favorite: recordings.favorite,
       archived: recordings.archived,
+      ownerTokenId: recordings.ownerTokenId,
       createdAt: recordings.createdAt,
       updatedAt: recordings.updatedAt,
     })
@@ -146,6 +148,7 @@ export function listRecordings(query: RecordingListQuery = {}): RecordingSummary
   const tag = query.tag?.trim().toLowerCase();
   const view = query.view ?? "active";
   let rows = selectSummaryRows().filter((r) => {
+    if (query.ownerTokenId && r.ownerTokenId !== query.ownerTokenId) return false;
     if (tag && !(r.tags ?? []).some((t) => t.toLowerCase() === tag)) return false;
     if (view === "active") return !r.archived;
     if (view === "favorites") return r.favorite && !r.archived;
@@ -256,6 +259,8 @@ export interface CreateRecordingInput {
   notes?: string;
   minSpeakers?: number;
   maxSpeakers?: number;
+  /** API token that created it, so submit-only tokens can read back their own recordings. */
+  ownerTokenId?: string;
   file: File;
 }
 
@@ -277,7 +282,7 @@ export async function createRecording(input: CreateRecordingInput): Promise<Reco
 /** Register an audio file that is already on disk (watch-folder import). The file is moved into DATA_DIR. */
 export function createRecordingFromPath(
   sourcePath: string,
-  input: { title?: string; language: string; hints?: string; tags?: string | string[]; notes?: string; originalFilename?: string },
+  input: { title?: string; language: string; hints?: string; tags?: string | string[]; notes?: string; originalFilename?: string; ownerTokenId?: string },
 ): RecordingDetail {
   const id = randomUUID();
   const dir = recordingDir(id);
@@ -304,6 +309,7 @@ function insertRecording(input: {
   notes?: string;
   minSpeakers?: number;
   maxSpeakers?: number;
+  ownerTokenId?: string;
 }): RecordingDetail {
   const ext = path.extname(input.originalFilename).toLowerCase();
   const ts = now();
@@ -319,6 +325,7 @@ function insertRecording(input: {
       notes: input.notes?.trim().slice(0, 20_000) || null,
       minSpeakers: input.minSpeakers ?? null,
       maxSpeakers: input.maxSpeakers ?? null,
+      ownerTokenId: input.ownerTokenId ?? null,
       status: "QUEUED",
       phase: "QUEUED",
       createdAt: ts,

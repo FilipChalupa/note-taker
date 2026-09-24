@@ -36,6 +36,20 @@ jobs:
       - run: node --test "test/*.test.mjs"
         working-directory: apps/intake
 
+  mcp:
+    name: MCP (node:test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+        working-directory: apps/mcp
+      - run: npm test
+        working-directory: apps/mcp
+
   web:
     name: Web (typecheck, build, e2e)
     runs-on: ubuntu-latest

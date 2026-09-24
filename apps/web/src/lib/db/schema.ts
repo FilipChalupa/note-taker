@@ -1,5 +1,5 @@
 import { integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
-import type { RecordingStatus, TranscriptSegment, VoiceSuggestion, WorkerTaskStatus } from "@note-taker/shared";
+import type { ApiTokenScope, RecordingStatus, TranscriptSegment, VoiceSuggestion, WorkerTaskStatus } from "@note-taker/shared";
 
 export const recordings = sqliteTable("recordings", {
   id: text("id").primaryKey(),
@@ -15,6 +15,8 @@ export const recordings = sqliteTable("recordings", {
   tags: text("tags", { mode: "json" }).$type<string[]>().notNull().default([]),
   /** Free-text notes about the meeting */
   notes: text("notes"),
+  /** API token that created the recording, when it did not come from the browser UI */
+  ownerTokenId: text("owner_token_id"),
   favorite: integer("favorite", { mode: "boolean" }).notNull().default(false),
   archived: integer("archived", { mode: "boolean" }).notNull().default(false),
   minSpeakers: integer("min_speakers"),
@@ -69,6 +71,33 @@ export const intakeImports = sqliteTable("intake_imports", {
   intakeId: text("intake_id").primaryKey(),
   recordingId: text("recording_id").notNull(),
   collectedAt: text("collected_at").notNull(),
+});
+
+/** Tokens for the REST API and the MCP server. Only the SHA-256 of the secret is stored. */
+export const apiTokens = sqliteTable("api_tokens", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  tokenHash: text("token_hash").notNull().unique(),
+  prefix: text("prefix").notNull(),
+  scopes: text("scopes", { mode: "json" }).$type<ApiTokenScope[]>().notNull().default([]),
+  tagFilter: text("tag_filter"),
+  createdAt: text("created_at").notNull(),
+  expiresAt: text("expires_at"),
+  lastUsedAt: text("last_used_at"),
+  revokedAt: text("revoked_at"),
+  requests: integer("requests").notNull().default(0),
+});
+
+/** Every authenticated API call, so it is visible what an agent did. */
+export const auditLog = sqliteTable("audit_log", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  at: text("at").notNull(),
+  tokenId: text("token_id"),
+  tokenName: text("token_name"),
+  action: text("action").notNull(),
+  recordingId: text("recording_id"),
+  status: integer("status").notNull(),
+  detail: text("detail"),
 });
 
 export const pushSubscriptions = sqliteTable("push_subscriptions", {

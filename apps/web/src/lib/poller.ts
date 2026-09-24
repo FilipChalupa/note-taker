@@ -22,6 +22,10 @@ export function ensurePollerStarted(): void {
       scanImportDir();
       const { maybeCollectIntake } = await import("@/lib/intake");
       void maybeCollectIntake();
+      if (Math.random() < 0.01) {
+        const { pruneAudit } = await import("@/lib/auth");
+        pruneAudit();
+      }
       await syncAll();
     } catch (err) {
       console.error("[poller] tick failed:", (err as Error).message);

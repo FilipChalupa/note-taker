@@ -7,6 +7,7 @@ Monorepo with two independently deployable services:
 | **Worker** (GPU transcription) | [`apps/worker`](apps/worker) | Python, FastAPI, WhisperX (faster-whisper/CTranslate2), pyannote diarization, ffmpeg | local PC with an NVIDIA GPU (WSL2) |
 | **Web** (UI + gateway) | [`apps/web`](apps/web) | Next.js 16 (App Router), Drizzle ORM + SQLite, Tailwind | homelab, in Docker |
 | **Intake** (optional public upload page) | [`apps/intake`](apps/intake) | Node.js, no dependencies | internet-facing VPS / cloud |
+| **MCP** (optional agent access) | [`apps/mcp`](apps/mcp) | Node.js, MCP SDK | wherever the agent runs |
 | Shared types | [`packages/shared`](packages/shared) | TypeScript types for the API contract | – |
 
 ```
@@ -61,10 +62,17 @@ reachable again.
 ```bash
 pnpm test:worker     # pytest: queue, ETA stats, hallucination filter, API (fake ML pipeline, real ffmpeg)
 pnpm test:intake     # node:test: upload protocol, limits, access code, collector API
+pnpm test:mcp        # node:test: MCP tool surface per scope, against a fake API
 pnpm build:web && pnpm test:e2e   # Playwright against the production build + a stub worker
 ```
 
 GitHub Actions runs both suites and builds the web Docker image on every push (`.github/workflows/ci.yml`).
+
+## Agents (MCP)
+
+AI agents can submit recordings and read transcripts through an MCP server, with scoped API tokens created in
+Settings. A `submit` token can upload and read back only its own recordings; a `read` token can search the whole
+archive, see who said what and how long each person spoke. See [`apps/mcp/README.md`](apps/mcp/README.md).
 
 ## Screenshots
 

@@ -244,6 +244,8 @@ export type RecordingView = "active" | "favorites" | "archived" | "all";
 
 export interface RecordingListQuery {
   tag?: string;
+  /** Restrict to recordings created by this API token (used for submit-only tokens). */
+  ownerTokenId?: string;
   view?: RecordingView;
   sort?: RecordingSort;
   page?: number;
@@ -277,6 +279,57 @@ export interface WorkerMetrics {
   failure_rate: number;
   days: Array<{ date: string; completed: number; failed: number; audio_seconds: number; processing_seconds: number }>;
   phase_rtf: Record<string, number>;
+}
+
+/**
+ * API token scopes.
+ *  submit - create recordings and read back only its own
+ *  read   - read every recording, transcript, speaker and tag
+ *  write  - edit transcripts, speakers, tags and notes
+ *  admin  - delete recordings and manage tokens
+ */
+export type ApiTokenScope = "submit" | "read" | "write" | "admin";
+
+export interface ApiTokenInfo {
+  id: string;
+  name: string;
+  /** First characters of the secret, for recognising a token in the list. */
+  prefix: string;
+  scopes: ApiTokenScope[];
+  /** When set, the token only sees recordings carrying this tag. */
+  tagFilter: string | null;
+  createdAt: string;
+  expiresAt: string | null;
+  lastUsedAt: string | null;
+  revokedAt: string | null;
+  requests: number;
+}
+
+/** Returned once, when the token is created. */
+export interface ApiTokenCreated {
+  token: ApiTokenInfo;
+  secret: string;
+}
+
+export interface AuditEntry {
+  id: number;
+  at: string;
+  tokenName: string | null;
+  action: string;
+  recordingId: string | null;
+  status: number;
+  detail: string | null;
+}
+
+/** GET /api/v1/me */
+export interface ApiIdentity {
+  name: string;
+  scopes: ApiTokenScope[];
+  tagFilter: string | null;
+  expiresAt: string | null;
+  limits: { requestsPerHour: number; submitsPerHour: number; maxUploadBytes: number };
+  defaultLanguage: string;
+  version: string;
 }
 
 export interface TagCount {

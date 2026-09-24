@@ -38,6 +38,8 @@ test("tags: upload with tags, filter in the list, edit on detail, searchable", a
 
 test("known voices: naming a speaker once suggests the name in the next recording", async ({ page, request }) => {
   // Voice fingerprints in the stub are deterministic per speaker id, so SPEAKER_00 is the same "person" every time.
+  // Start from a clean slate: other specs may have taught the matcher the same fingerprint under a different name.
+  for (const v of (await (await request.get("/api/voices")).json()) as { id: string }[]) await request.delete(`/api/voices/${v.id}`);
   const first = await completedRecording(request, "Voices A");
   expect(first.speakersWithEmbedding).toEqual(["SPEAKER_00", "SPEAKER_01"]);
   await request.patch(`/api/recordings/${first.id}`, { data: { speakerNames: { SPEAKER_00: "Filip Novák" } } });

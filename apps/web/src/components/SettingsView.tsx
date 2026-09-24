@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import type { AppSettings, IntakeStatus, StorageInfo, Voice, WorkerMetrics } from "@note-taker/shared";
+import type { ApiTokenInfo, AppSettings, AuditEntry, IntakeStatus, StorageInfo, Voice, WorkerMetrics } from "@note-taker/shared";
+import { TokensSection } from "./TokensSection";
 import { formatDate } from "@/lib/format";
 import { fmt } from "@/lib/i18n";
 import { useI18n } from "@/lib/i18n/client";
@@ -119,12 +120,16 @@ export function SettingsView({
   voices: initialVoices,
   metrics,
   intake,
+  tokens,
+  audit,
 }: {
   initial: AppSettings;
   storage: StorageInfo;
   voices: Voice[];
   metrics: { library: LibraryStats; worker: WorkerMetrics | null };
   intake: IntakeStatus;
+  tokens: ApiTokenInfo[];
+  audit: AuditEntry[];
 }) {
   const { m } = useI18n();
   const toast = useToast();
@@ -257,6 +262,8 @@ export function SettingsView({
       >
         <p>{voiceDialog?.kind === "delete" ? fmt(m.voices.confirmDelete, { name: voiceDialog.voice.name }) : ""}</p>
       </Dialog>
+
+      <TokensSection initial={tokens} audit={audit} />
 
       <IntakeSection initial={intake} />
 

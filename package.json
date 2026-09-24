@@ -11,6 +11,8 @@
     "test:worker": "cd apps/worker && python3 -m pytest",
     "test:e2e": "pnpm --filter @note-taker/web test:e2e",
     "dev:intake": "cd apps/intake && npm run dev",
-    "test:intake": "cd apps/intake && node --test \"test/*.test.mjs\""
+    "test:intake": "cd apps/intake && node --test \"test/*.test.mjs\"",
+    "build:mcp": "cd apps/mcp && npm install --no-audit --no-fund && npm run build",
+    "test:mcp": "cd apps/mcp && npm test"
   }
 }

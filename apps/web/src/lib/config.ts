@@ -22,6 +22,10 @@ export const config = {
   intakeToken: process.env.INTAKE_TOKEN || null,
   intakePollMs: num("INTAKE_POLL_SECONDS", 30) * 1000,
   intakeTags: (process.env.INTAKE_TAGS ?? "intake").split(",").map((t) => t.trim()).filter(Boolean),
+  /** Per-token limits for /api/v1 (agents). */
+  apiRequestsPerHour: num("API_RATE_LIMIT_PER_HOUR", 600),
+  apiSubmitsPerHour: num("API_SUBMIT_LIMIT_PER_HOUR", 60),
+  auditRetentionDays: num("AUDIT_RETENTION_DAYS", 30),
 } as const;
 
 export const SUPPORTED_MEDIA = /\.(mp3|mpga|m4a|m4b|wav|aac|ogg|oga|opus|flac|wma|aiff?|mka|webm|mp4|m4v|mov|mkv|avi|mpe?g|ts|3gp|amr)$/i;

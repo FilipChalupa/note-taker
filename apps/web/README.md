@@ -87,11 +87,35 @@ trimmed to Whisper's prompt budget (~900 characters) and sent as `initial_prompt
 | `POST` | `/api/settings/glossary` | `{ terms }` – append terms to the glossary (used by the correction suggestions) |
 | `GET` | `/api/tags` | tags with usage counts |
 | `GET` / `POST` | `/api/intake` | intake pull status / collect now |
+| `GET` / `POST` | `/api/tokens` | API tokens for agents; `POST/DELETE /api/tokens/:id` revokes or removes |
+| `GET` | `/api/audit` | recent authenticated API calls |
 | `GET` / `PATCH` / `DELETE` | `/api/voices[/:id]` | known voices learned from named speakers |
 | `POST` | `/api/recordings/:id/speakers/apply-suggestions` | name speakers after suggested known voices |
 | `GET` / `PUT` | `/api/settings` | global glossary |
 | `GET` | `/api/storage` | disk usage of `DATA_DIR` and free space |
 | `GET` | `/api/worker/health` | worker reachability + GPU info |
+
+## API for agents (`/api/v1`)
+
+Authenticated with `Authorization: Bearer nt_...` tokens created in Settings. Scopes are `submit`, `read`, `write`
+and `admin`; `admin` implies the rest. A token may be limited to one tag. Calls are rate limited per token and
+recorded in the audit log. This is what [`apps/mcp`](../mcp) talks to.
+
+| Method | Path | Scope | |
+| --- | --- | --- | --- |
+| `GET` | `/api/v1/me` | any | identity, scopes, limits |
+| `GET` | `/api/v1/recordings` | submit | list; a submit-only token sees only its own |
+| `POST` | `/api/v1/recordings` | submit | multipart upload, returns the recording |
+| `GET` | `/api/v1/recordings/:id` | submit | status and metadata |
+| `PATCH` | `/api/v1/recordings/:id` | write | title, tags, notes, speaker names |
+| `DELETE` | `/api/v1/recordings/:id` | admin | delete |
+| `GET` | `/api/v1/recordings/:id/transcript` | submit | `?format=json\|md\|txt\|srt\|vtt`, `?words=true` |
+| `GET` / `POST` | `/api/v1/recordings/:id/speakers` | submit / write | names, suggestions, speaking time / rename, merge |
+| `PATCH` | `/api/v1/recordings/:id/segments` | write | correct text, speaker or times |
+| `GET` | `/api/v1/recordings/:id/audio` | submit | audio, or `?sign=true` for a short-lived link |
+| `GET` | `/api/v1/search?q=` | read | full-text search |
+| `GET` | `/api/v1/tags` | read | tags in use |
+| `GET` | `/api/v1/status` | read | transcription availability and queue |
 
 ## Behaviour when the worker is down
 
