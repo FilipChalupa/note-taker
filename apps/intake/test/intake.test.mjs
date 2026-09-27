@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { after, before, describe, test } from "node:test";
-import { loadConfig } from "../src/config.mjs";
+import { loadConfig, SUPPORTED_MEDIA } from "../src/config.mjs";
 import { RateLimiter, startIntake } from "../src/app.mjs";
 
 const TOKEN = "collect-secret";
@@ -271,4 +271,9 @@ test("the accepted formats match the canonical list in packages/shared", () => {
   const here = JSON.parse(fs.readFileSync(new URL("../src/media-extensions.json", import.meta.url), "utf8"));
   const canonical = JSON.parse(fs.readFileSync(new URL("../../../packages/shared/media-extensions.json", import.meta.url), "utf8"));
   assert.deepEqual(here, canonical, "Copy packages/shared/media-extensions.json to apps/intake/src/media-extensions.json");
+});
+
+test("a media file needs a real extension, not just a name ending in one", () => {
+  assert.ok(SUPPORTED_MEDIA.test("meeting.MKA"));
+  assert.ok(!SUPPORTED_MEDIA.test("meetingmp3"));
 });

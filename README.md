@@ -63,6 +63,7 @@ reachable again.
 pnpm test:worker     # pytest: queue, ETA stats, hallucination filter, API (fake ML pipeline, real ffmpeg)
 pnpm test:intake     # node:test: upload protocol, limits, access code, collector API
 pnpm test:mcp        # node:test: MCP tool surface per scope, against a fake API
+pnpm test:shared     # node:test: shared helpers (speaker statistics)
 pnpm build:web && pnpm test:e2e   # Playwright against the production build + a stub worker
 ```
 
@@ -139,6 +140,7 @@ pnpm install
 pnpm dev:worker            # = bash apps/worker/run.sh
 pnpm dev:web               # Next.js dev server on :3000 (WORKER_API_URL from apps/web/.env)
 pnpm typecheck
+pnpm lint                  # ESLint: Next.js rules for apps/web, JS/TS rules for the rest
 ```
 
 ## Layout

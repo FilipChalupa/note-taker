@@ -8,6 +8,7 @@ export function LanguageSwitcher() {
   const { locale } = useI18n();
   const router = useRouter();
   const set = (l: Locale) => {
+    // eslint-disable-next-line react-hooks/immutability -- writing a cookie in an event handler, not during render
     document.cookie = `${LOCALE_COOKIE}=${l}; path=/; max-age=31536000; samesite=lax`;
     router.refresh();
   };

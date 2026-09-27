@@ -55,7 +55,7 @@ or in a client config file:
 }
 ```
 
-Build first with `pnpm --filter @note-taker/mcp build` (or `npm run build` in this folder).
+Build first with `pnpm install && pnpm build:mcp` in the repo root.
 
 ### HTTP transport
 
@@ -80,5 +80,5 @@ rebinding protection. Expose it further only through a VPN address, never to the
 ## Tests
 
 ```bash
-npm test   # builds, then runs node:test against a fake Note Taker API
+pnpm test:mcp   # builds, then runs node:test against a fake Note Taker API
 ```

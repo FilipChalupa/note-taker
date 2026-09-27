@@ -101,8 +101,10 @@ export class RateLimiter {
 }
 
 // ASCII control characters are stripped from free text; multi-line notes keep newlines
+/* eslint-disable no-control-regex */
 const CONTROL_CHARS = new RegExp("[\\u0000-\\u001f\\u007f]", "g");
 const CONTROL_EXCEPT_NEWLINE = new RegExp("[\\u0000-\\u0009\\u000b-\\u001f\\u007f]", "g");
+/* eslint-enable no-control-regex */
 const cleanText = (v, max) => (typeof v === "string" ? v.replace(CONTROL_CHARS, "").trim().slice(0, max) : "");
 const cleanMultiline = (v, max) =>
   typeof v === "string" ? v.replace(/\r\n?/g, "\n").replace(CONTROL_EXCEPT_NEWLINE, "").trim().slice(0, max) : "";

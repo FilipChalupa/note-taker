@@ -1,10 +1,7 @@
 /** Full-text index (FTS5) over titles, tags, notes and transcripts. Server-side only. */
-import { and } from "drizzle-orm";
 import type { SearchHit } from "@note-taker/shared";
-import { rawDb, schema } from "@/lib/db";
+import { rawDb } from "@/lib/db";
 import { getRecordingRow } from "./core";
-
-const { recordings } = schema;
 
 export function indexRecording(id: string): void {
   const row = getRecordingRow(id);

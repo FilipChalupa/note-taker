@@ -7,13 +7,19 @@
     "build:web": "pnpm --filter @note-taker/web build",
     "dev:worker": "bash apps/worker/run.sh",
     "typecheck": "pnpm -r --if-present typecheck",
-    "lint": "pnpm -r --if-present lint",
+    "lint": "eslint . && pnpm --filter @note-taker/web lint",
     "test:worker": "cd apps/worker && python3 -m pytest",
     "test:e2e": "pnpm --filter @note-taker/web test:e2e",
-    "dev:intake": "cd apps/intake && npm run dev",
-    "test:intake": "cd apps/intake && node --test \"test/*.test.mjs\"",
-    "build:mcp": "cd apps/mcp && npm install --no-audit --no-fund && npm run build",
-    "test:mcp": "cd apps/mcp && npm test",
+    "dev:intake": "pnpm --filter @note-taker/intake dev",
+    "test:intake": "pnpm --filter @note-taker/intake test",
+    "build:mcp": "pnpm --filter @note-taker/mcp build",
+    "test:mcp": "pnpm --filter @note-taker/mcp test",
     "test:shared": "pnpm --filter @note-taker/shared test"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "globals": "^17.12.0",
+    "typescript-eslint": "^8.70.1"
   }
 }

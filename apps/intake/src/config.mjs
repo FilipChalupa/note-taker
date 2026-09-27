@@ -35,6 +35,6 @@ export function loadConfig(env = process.env) {
 
 /** Copy of packages/shared/media-extensions.json (kept here so the intake deploys on its own; a test checks they match). */
 export const MEDIA_EXTENSIONS = JSON.parse(fs.readFileSync(new URL("./media-extensions.json", import.meta.url), "utf8"));
-export const SUPPORTED_MEDIA = new RegExp(`\.(${MEDIA_EXTENSIONS.join("|")})$`, "i");
+export const SUPPORTED_MEDIA = new RegExp(`\\.(${MEDIA_EXTENSIONS.join("|")})$`, "i");
 export const MEDIA_ACCEPT = [...MEDIA_EXTENSIONS.map((e) => `.${e}`), "audio/*", "video/*"].join(",");
 export const LANGUAGES = ["cs", "sk", "en", "de", "pl", "fr", "es", "it", "uk", "ru", "auto"];

@@ -47,7 +47,6 @@ export function useTranscriptWindow(
     let end = start;
     while (end < turns.length && y < ve) y += heightOf(end++);
     setRange((prev) => (prev[0] === start && prev[1] === end ? prev : [start, end]));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [virtual, turns.length]);
 
   useEffect(() => {

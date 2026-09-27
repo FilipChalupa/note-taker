@@ -9,8 +9,12 @@ FROM base AS build
 RUN apt-get update && apt-get install -y --no-install-recommends python3 make g++ && rm -rf /var/lib/apt/lists/*
 WORKDIR /repo
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* ./
+# every workspace manifest, so the frozen lockfile matches; only the web app's dependencies get installed
 COPY packages/shared/package.json packages/shared/
 COPY apps/web/package.json apps/web/
+COPY apps/intake/package.json apps/intake/
+COPY apps/mcp/package.json apps/mcp/
+COPY apps/worker/package.json apps/worker/
 RUN pnpm install --frozen-lockfile --filter @note-taker/web...
 COPY packages/shared packages/shared
 COPY apps/web apps/web

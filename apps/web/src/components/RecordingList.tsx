@@ -128,6 +128,15 @@ export function RecordingList({ initial, tags, query }: { initial: RecordingPage
   };
 
   // Keyboard navigation: arrows / j k move, Enter opens, Space selects, A all, F favorite, E archive, T tag, Delete, Esc
+  const toggle = (id: string) =>
+    setSelected((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  const allOnPage = items.length > 0 && items.every((r) => selected.has(r.id));
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
@@ -184,14 +193,6 @@ export function RecordingList({ initial, tags, query }: { initial: RecordingPage
     document.querySelector<HTMLElement>(`[data-row-index="${cursor}"]`)?.scrollIntoView({ block: "nearest" });
   }, [cursor]);
 
-  const toggle = (id: string) =>
-    setSelected((s) => {
-      const n = new Set(s);
-      if (n.has(id)) n.delete(id);
-      else n.add(id);
-      return n;
-    });
-  const allOnPage = items.length > 0 && items.every((r) => selected.has(r.id));
   const pages = Math.max(1, Math.ceil(data.total / data.pageSize));
   const view = query.view ?? "active";
   const sort = query.sort ?? "newest";
