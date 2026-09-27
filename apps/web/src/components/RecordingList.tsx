@@ -196,19 +196,19 @@ export function RecordingList({ initial, tags, query }: { initial: RecordingPage
   const view = query.view ?? "active";
   const sort = query.sort ?? "newest";
   const sortLabel: Record<RecordingSort, string> = {
-    newest: m.listx.sortNewest,
-    oldest: m.listx.sortOldest,
-    title: m.listx.sortTitle,
-    longest: m.listx.sortLongest,
-    shortest: m.listx.sortShortest,
+    newest: m.library.sortNewest,
+    oldest: m.library.sortOldest,
+    title: m.library.sortTitle,
+    longest: m.library.sortLongest,
+    shortest: m.library.sortShortest,
   };
-  const viewLabel: Record<RecordingView, string> = { active: m.listx.viewActive, favorites: m.listx.viewFavorites, archived: m.listx.viewArchived, all: "" };
+  const viewLabel: Record<RecordingView, string> = { active: m.library.viewActive, favorites: m.library.viewFavorites, archived: m.library.viewArchived, all: "" };
 
   const Star = ({ rec }: { rec: RecordingSummary }) => (
     <button
       className={`text-base leading-none ${rec.favorite ? "text-amber-500" : "text-zinc-300 hover:text-amber-400 dark:text-zinc-600"}`}
-      title={rec.favorite ? m.listx.unstar : m.listx.star}
-      aria-label={rec.favorite ? m.listx.unstar : m.listx.star}
+      title={rec.favorite ? m.library.unstar : m.library.star}
+      aria-label={rec.favorite ? m.library.unstar : m.library.star}
       aria-pressed={rec.favorite}
       onClick={() => patchOne(rec, { favorite: !rec.favorite })}
     >
@@ -225,8 +225,8 @@ export function RecordingList({ initial, tags, query }: { initial: RecordingPage
       )}
       <button
         className={`btn ${compact ? "px-2 py-1 text-xs" : ""}`}
-        title={rec.archived ? m.listx.unarchive : m.listx.archive}
-        aria-label={rec.archived ? m.listx.unarchive : m.listx.archive}
+        title={rec.archived ? m.library.unarchive : m.library.archive}
+        aria-label={rec.archived ? m.library.unarchive : m.library.archive}
         onClick={() => patchOne(rec, { archived: !rec.archived })}
       >
         {rec.archived ? "⤴" : "🗄"}
@@ -263,8 +263,8 @@ export function RecordingList({ initial, tags, query }: { initial: RecordingPage
           ))}
         </div>
         <label className="flex items-center gap-2 text-sm text-zinc-600 dark:text-zinc-300">
-          {m.listx.sort}
-          <select className="input w-auto py-1" value={sort} onChange={(e) => router.push(buildHref(query, { sort: e.target.value as RecordingSort, page: 1 }))} aria-label={m.listx.sort}>
+          {m.library.sort}
+          <select className="input w-auto py-1" value={sort} onChange={(e) => router.push(buildHref(query, { sort: e.target.value as RecordingSort, page: 1 }))} aria-label={m.library.sort}>
             {SORTS.map((s) => (
               <option key={s} value={s}>
                 {sortLabel[s]}
@@ -292,24 +292,24 @@ export function RecordingList({ initial, tags, query }: { initial: RecordingPage
 
       {selected.size > 0 && (
         <div className="mb-3 flex flex-wrap items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm dark:border-blue-900 dark:bg-blue-950" data-testid="bulk-toolbar">
-          <span className="font-medium">{fmt(m.listx.selected, { n: selected.size })}</span>
+          <span className="font-medium">{fmt(m.library.selected, { n: selected.size })}</span>
           <button className="btn py-1 text-xs" onClick={() => setDialog({ kind: "tag", action: "addTag" })} disabled={busy}>
-            🏷 {m.listx.addTag}
+            🏷 {m.library.addTag}
           </button>
           <button className="btn py-1 text-xs" onClick={() => setDialog({ kind: "tag", action: "removeTag" })} disabled={busy}>
-            {m.listx.removeTag}
+            {m.library.removeTag}
           </button>
           <button className="btn py-1 text-xs" onClick={() => bulk("favorite")} disabled={busy}>
-            ★ {m.listx.favorite}
+            ★ {m.library.favorite}
           </button>
           <button className="btn py-1 text-xs" onClick={() => bulk(view === "archived" ? "unarchive" : "archive")} disabled={busy}>
-            {view === "archived" ? `⤴ ${m.listx.unarchive}` : `🗄 ${m.listx.archive}`}
+            {view === "archived" ? `⤴ ${m.library.unarchive}` : `🗄 ${m.library.archive}`}
           </button>
           <button className="btn btn-danger py-1 text-xs" onClick={() => setDialog({ kind: "delete" })} disabled={busy}>
-            {fmt(m.listx.deleteN, { n: selected.size })}
+            {fmt(m.library.deleteN, { n: selected.size })}
           </button>
           <button className="ml-auto text-xs text-zinc-500 hover:underline" onClick={() => setSelected(new Set())}>
-            {m.listx.clear}
+            {m.library.clear}
           </button>
         </div>
       )}
@@ -327,7 +327,7 @@ export function RecordingList({ initial, tags, query }: { initial: RecordingPage
           <div className="space-y-2 md:hidden">
             <label className="flex items-center gap-2 px-1 text-xs text-zinc-500">
               <input type="checkbox" checked={allOnPage} onChange={(e) => setSelected(e.target.checked ? new Set(items.map((r) => r.id)) : new Set())} />
-              {m.listx.selectAll}
+              {m.library.selectAll}
             </label>
             {items.map((rec, i) => {
               const phase = phaseLabel(rec.phase, m);
@@ -348,7 +348,7 @@ export function RecordingList({ initial, tags, query }: { initial: RecordingPage
                         <span>{formatDate(rec.createdAt, locale, tz)}</span>
                         {rec.durationSec != null && <span>{formatDuration(rec.durationSec, m)}</span>}
                         {rec.speakerCount != null && <span>{rec.speakerCount} {m.list.speakers.toLowerCase()}</span>}
-                        {rec.archived && <span>{m.listx.archivedBadge}</span>}
+                        {rec.archived && <span>{m.library.archivedBadge}</span>}
                       </div>
                     </div>
                   </div>
@@ -379,7 +379,7 @@ export function RecordingList({ initial, tags, query }: { initial: RecordingPage
               <thead className="bg-zinc-50 text-left text-xs uppercase tracking-wide text-zinc-500 dark:bg-zinc-800/60">
                 <tr>
                   <th className="w-8 px-3 py-2">
-                    <input type="checkbox" checked={allOnPage} onChange={(e) => setSelected(e.target.checked ? new Set(items.map((r) => r.id)) : new Set())} aria-label={m.listx.selectAll} />
+                    <input type="checkbox" checked={allOnPage} onChange={(e) => setSelected(e.target.checked ? new Set(items.map((r) => r.id)) : new Set())} aria-label={m.library.selectAll} />
                   </th>
                   <th className="w-6 px-1 py-2" />
                   <th className="px-4 py-2">{m.list.name}</th>
@@ -412,7 +412,7 @@ export function RecordingList({ initial, tags, query }: { initial: RecordingPage
                         <Link href={`/recordings/${rec.id}`} className="font-medium hover:underline">
                           {rec.title}
                         </Link>
-                        {rec.archived && <span className="ml-2 rounded bg-zinc-100 px-1.5 text-[11px] text-zinc-500 dark:bg-zinc-800">{m.listx.archivedBadge}</span>}
+                        {rec.archived && <span className="ml-2 rounded bg-zinc-100 px-1.5 text-[11px] text-zinc-500 dark:bg-zinc-800">{m.library.archivedBadge}</span>}
                         <div className="text-xs text-zinc-500">{rec.originalFilename}</div>
                         {rec.tags.length > 0 && <TagChips tags={rec.tags} />}
                       </td>
@@ -445,15 +445,15 @@ export function RecordingList({ initial, tags, query }: { initial: RecordingPage
             </table>
           </div>
 
-          <p className="mt-2 hidden text-xs text-zinc-400 md:block">{m.listx.keys}</p>
+          <p className="mt-2 hidden text-xs text-zinc-400 md:block">{m.library.keys}</p>
           {pages > 1 && (
             <div className="mt-3 flex items-center justify-center gap-3 text-sm" data-testid="pagination">
               <Link aria-disabled={data.page <= 1} className={`btn ${data.page <= 1 ? "pointer-events-none opacity-40" : ""}`} href={buildHref(query, { page: data.page - 1 })}>
-                ‹ {m.listx.prev}
+                ‹ {m.library.prev}
               </Link>
-              <span className="text-zinc-600 dark:text-zinc-300">{fmt(m.listx.page, { page: data.page, pages })}</span>
+              <span className="text-zinc-600 dark:text-zinc-300">{fmt(m.library.page, { page: data.page, pages })}</span>
               <Link aria-disabled={data.page >= pages} className={`btn ${data.page >= pages ? "pointer-events-none opacity-40" : ""}`} href={buildHref(query, { page: data.page + 1 })}>
-                {m.listx.next} ›
+                {m.library.next} ›
               </Link>
             </div>
           )}
@@ -462,7 +462,7 @@ export function RecordingList({ initial, tags, query }: { initial: RecordingPage
 
       <Dialog
         open={dialog?.kind === "tag"}
-        title={dialog?.kind === "tag" && dialog.action === "removeTag" ? m.listx.removeTag : m.listx.addTag}
+        title={dialog?.kind === "tag" && dialog.action === "removeTag" ? m.library.removeTag : m.library.addTag}
         onClose={() => setDialog(null)}
         actions={
           <>
@@ -475,7 +475,7 @@ export function RecordingList({ initial, tags, query }: { initial: RecordingPage
           </>
         }
       >
-        <input className="input" value={tagInput} onChange={(e) => setTagInput(e.target.value)} placeholder={m.listx.tagPrompt} list="all-tags" onKeyDown={(e) => e.key === "Enter" && dialog?.kind === "tag" && tagInput.trim() && bulk(dialog.action, tagInput.trim())} />
+        <input className="input" value={tagInput} onChange={(e) => setTagInput(e.target.value)} placeholder={m.library.tagPrompt} list="all-tags" onKeyDown={(e) => e.key === "Enter" && dialog?.kind === "tag" && tagInput.trim() && bulk(dialog.action, tagInput.trim())} />
         <datalist id="all-tags">
           {tags.map((t) => (
             <option key={t.tag} value={t.tag} />
@@ -497,7 +497,7 @@ export function RecordingList({ initial, tags, query }: { initial: RecordingPage
           </>
         }
       >
-        <p>{dialog?.kind === "delete" && dialog.title ? fmt(m.list.confirmDelete, { title: dialog.title }) : fmt(m.listx.confirmDeleteN, { n: selected.size })}</p>
+        <p>{dialog?.kind === "delete" && dialog.title ? fmt(m.list.confirmDelete, { title: dialog.title }) : fmt(m.library.confirmDeleteN, { n: selected.size })}</p>
       </Dialog>
     </div>
   );

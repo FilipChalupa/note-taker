@@ -1,57 +1,38 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ExportFormat, RecordingDetail, SegmentEdit, TranscriptMutationResult, TranscriptSegment } from "@note-taker/shared";
+import type { RecordingDetail, SegmentEdit, TranscriptMutationResult, TranscriptSegment } from "@note-taker/shared";
 import { computeSpeakerStats } from "@note-taker/shared";
 import { api } from "@/lib/api-client";
-import { Markdown } from "./Markdown";
 import { useToast } from "./Toast";
-import { StatusBadge } from "./StatusBadge";
-import { Dialog } from "./Dialog";
 import { requestWorkerRefresh } from "./WorkerStatus";
 import { PlayerControls } from "./player/PlayerControls";
 import { usePlayer } from "./player/PlayerProvider";
-import { errorLabel, formatDate, formatDuration, formatTime, groupTurns, phaseLabel, speakerColor, speakerLabel, warningLabel } from "@/lib/format";
+import { NotesCard } from "./recording/NotesCard";
+import { RecordingHeader, type RecordingPatch } from "./recording/RecordingHeader";
+import { SegmentEditor, type SegmentDraft } from "./recording/SegmentEditor";
+import { SpeakersPanel } from "./recording/SpeakersPanel";
+import { TranscriptTurn } from "./recording/TranscriptTurn";
+import { ConfirmDialog, RediarizeDialog, ShortcutsDialog, type ConfirmRequest, type RediarizeOptions } from "./recording/dialogs";
+import { useTranscriptSearch } from "./recording/useTranscriptSearch";
+import { useElementHeight, useTranscriptWindow } from "./recording/useTranscriptWindow";
+import { errorLabel, groupTurns, phaseLabel, speakerLabel, warningLabel } from "@/lib/format";
 import { fmt } from "@/lib/i18n";
 import { useI18n } from "@/lib/i18n/client";
 
 const POLL_MS = 2500;
 
-/** Wrap search matches in <mark>; `counter.n` is the running global match index, the one equal to
- *  `cursor` gets the ref for scrolling. */
-function highlightMatches(
-  text: string,
-  matcher: RegExp,
-  counter: { n: number },
-  cursor: number,
-  cursorRef: React.RefObject<HTMLSpanElement | null>,
-): React.ReactNode {
-  const parts = text.split(matcher);
-  if (parts.length === 1) return text;
-  return parts.map((part, i) => {
-    if (i % 2 === 0) return part;
-    const idx = counter.n++;
-    return (
-      <mark
-        key={i}
-        ref={idx === cursor ? (cursorRef as React.RefObject<HTMLElement>) : undefined}
-        className={`rounded px-0.5 ${idx === cursor ? "bg-orange-300 dark:bg-orange-600" : "bg-yellow-200 dark:bg-yellow-700/60"}`}
-      >
-        {part}
-      </mark>
-    );
-  });
-}
-const EXPORTS: ExportFormat[] = ["md", "txt", "srt", "vtt"];
+type Snapshot = Pick<RecordingDetail, "segments" | "speakers" | "speakerNames">;
+type DialogState = null | { kind: "rediarize" } | ({ kind: "confirm" } & ConfirmRequest) | { kind: "shortcuts" };
 
 export function RecordingView({ initial }: { initial: RecordingDetail }) {
-  const { locale, m, tz } = useI18n();
+  const { m } = useI18n();
   const router = useRouter();
   const toast = useToast();
   const [rec, setRec] = useState(initial);
-  const [notesEditing, setNotesEditing] = useState(false);
+  const [names, setNames] = useState<Record<string, string>>(rec.speakerNames);
+  useEffect(() => setNames(rec.speakerNames), [rec.speakerNames]);
 
   /** Apply a light mutation result (head + patch) to local state without re-downloading segments. */
   const applyMutation = (res: TranscriptMutationResult) => {
@@ -70,9 +51,6 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
   };
   const fail = (err: unknown) => toast.error(fmt(m.toast.failed, { detail: (err as Error).message }));
   const inflight = rec.status === "QUEUED" || rec.status === "PROCESSING";
-  const searchParams = useSearchParams();
-  const [query, setQuery] = useState(() => (searchParams.get("q") ?? "").trim());
-  const searchRef = useRef<HTMLInputElement>(null);
 
   // ---------------------------------------------------------------- polling
   const refresh = useCallback(async () => {
@@ -174,187 +152,36 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
     return idx;
   }, [rec.segments, activeIndex, time]);
 
-  const matcher = useMemo(() => {
-    const q = query.trim();
-    if (!q) return null;
-    const esc = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    // Phrase match first (what Ctrl+F users expect); fall back to any-of-the-words when the phrase
-    // never occurs, which is the case for hits coming from the full-text search page.
-    const phrase = new RegExp(`(${q.split(/\s+/).map(esc).join("\\s+")})`, "giu");
-    if (rec.segments.some((sg) => phrase.test(sg.text))) return phrase;
-    const terms = q.split(/\s+/).filter(Boolean).map(esc);
-    return terms.length ? new RegExp(`(${terms.join("|")})`, "giu") : null;
-  }, [query, rec.segments]);
-  const matchCount = useMemo(() => {
-    if (!matcher) return 0;
-    return rec.segments.reduce((n, s) => n + (s.text.match(matcher)?.length ?? 0), 0);
-  }, [matcher, rec.segments]);
-  const matchOffsets = useMemo(() => {
-    const map = new Map<number, number>();
-    if (!matcher) return map;
-    let n = 0;
-    rec.segments.forEach((seg, i) => {
-      map.set(i, n);
-      n += seg.text.match(matcher)?.length ?? 0;
-    });
-    return map;
-  }, [matcher, rec.segments]);
-  const [matchCursor, setMatchCursor] = useState(0);
-  const matchRef = useRef<HTMLSpanElement>(null);
-  const segmentOfMatch = (cursor: number): number => {
-    let seg = -1;
-    for (const [i, off] of matchOffsets) if (off <= cursor && i > seg) seg = i;
-    return seg;
-  };
+  const searchParams = useSearchParams();
+  const search = useTranscriptSearch(rec.segments, (searchParams.get("q") ?? "").trim());
+  const { matcher, matchCount, matchCursor, stepMatch } = search;
+  const searchRef = useRef<HTMLInputElement>(null);
+  const activeRef = useRef<HTMLSpanElement>(null);
+  const win = useTranscriptWindow(turns, { active: activeRef, match: search.matchRef });
+  const playerCardRef = useRef<HTMLDivElement>(null);
+  const playerH = useElementHeight(playerCardRef, rec.audioUrl);
+
   useEffect(() => {
     if (!matcher || matchCount === 0) return;
     // Small delay so the page does not jump on every keystroke while the query is being typed
-    const t = setTimeout(() => {
-      const segIdx = segmentOfMatch(matchCursor);
-      const ti = segIdx >= 0 ? turnOfSegment[segIdx] : undefined;
-      if (virtual && ti != null && (ti < range[0] || ti >= range[1])) {
-        scrollToTurn(ti, "match");
-        return;
-      }
-      matchRef.current?.scrollIntoView({ block: "center" });
-    }, 180);
+    const t = setTimeout(() => win.reveal(search.segmentOfMatch(matchCursor), "match"), 180);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [matchCursor, matchCount, matcher]);
 
-  const activeRef = useRef<HTMLSpanElement>(null);
-
-  // ---- windowed rendering of turns (long recordings) ----
-  const VIRTUAL_MIN_TURNS = 60;
-  const EST_TURN_PX = 110;
-  const GAP_PX = 16;
-  const OVERSCAN_PX = 800;
-  const [forceAll, setForceAll] = useState(false);
-  const virtual = turns.length > VIRTUAL_MIN_TURNS && !forceAll;
-  const listRef = useRef<HTMLDivElement>(null);
-  const playerCardRef = useRef<HTMLDivElement>(null);
-  const [playerH, setPlayerH] = useState(0);
   useEffect(() => {
-    const el = playerCardRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(() => setPlayerH(el.offsetHeight));
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [rec.audioUrl]);
-  const heights = useRef<number[]>([]);
-  const [range, setRange] = useState<[number, number]>([0, 40]);
-  const pendingScroll = useRef<"active" | "match" | null>(null);
-  const turnOfSegment = useMemo(() => {
-    const a: number[] = [];
-    turns.forEach((t, ti) => t.segments.forEach((sg) => (a[sg.index] = ti)));
-    return a;
-  }, [turns]);
-  const heightOf = (i: number) => (heights.current[i] ?? EST_TURN_PX) + GAP_PX;
-  const offsetOf = (i: number) => {
-    let y = 0;
-    for (let k = 0; k < i && k < turns.length; k++) y += heightOf(k);
-    return y;
-  };
-  const recompute = useCallback(() => {
-    if (!virtual || !listRef.current) return;
-    const top = listRef.current.getBoundingClientRect().top + window.scrollY;
-    const vs = window.scrollY - top - OVERSCAN_PX;
-    const ve = window.scrollY + window.innerHeight - top + OVERSCAN_PX;
-    let y = 0;
-    let start = 0;
-    while (start < turns.length && y + heightOf(start) < vs) y += heightOf(start++);
-    let end = start;
-    while (end < turns.length && y < ve) y += heightOf(end++);
-    setRange((prev) => (prev[0] === start && prev[1] === end ? prev : [start, end]));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [virtual, turns.length]);
-  useEffect(() => {
-    if (!virtual) return;
-    recompute();
-    let raf = 0;
-    const onScroll = () => {
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(recompute);
-    };
-    window.addEventListener("scroll", onScroll, { passive: true });
-    window.addEventListener("resize", onScroll);
-    return () => {
-      cancelAnimationFrame(raf);
-      window.removeEventListener("scroll", onScroll);
-      window.removeEventListener("resize", onScroll);
-    };
-  }, [virtual, recompute]);
-  useEffect(() => {
-    const before = () => setForceAll(true);
-    const after = () => setForceAll(false);
-    window.addEventListener("beforeprint", before);
-    window.addEventListener("afterprint", after);
-    return () => {
-      window.removeEventListener("beforeprint", before);
-      window.removeEventListener("afterprint", after);
-    };
-  }, []);
-  const measure = (ti: number) => (el: HTMLDivElement | null) => {
-    if (!el) return;
-    const h = el.offsetHeight;
-    if (Math.abs((heights.current[ti] ?? 0) - h) > 1) heights.current[ti] = h;
-  };
-  const scrollToTurn = (ti: number, what: "active" | "match") => {
-    if (!listRef.current) return;
-    pendingScroll.current = what;
-    const top = listRef.current.getBoundingClientRect().top + window.scrollY;
-    window.scrollTo({ top: Math.max(0, top + offsetOf(ti) - 160) });
-    recompute();
-  };
-  useEffect(() => {
-    // finish a scroll requested while the target turn was not rendered yet
-    const what = pendingScroll.current;
-    if (!what) return;
-    const el = what === "active" ? activeRef.current : matchRef.current;
-    if (el) {
-      pendingScroll.current = null;
-      el.scrollIntoView({ block: "center" });
-    }
-  });
-
-  useEffect(() => {
-    if (!follow || !playing || activeIndex < 0) return;
-    const ti = turnOfSegment[activeIndex];
-    if (virtual && ti != null && (ti < range[0] || ti >= range[1])) {
-      scrollToTurn(ti, "active");
-      return;
-    }
-    activeRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+    if (follow && playing && activeIndex >= 0) win.reveal(activeIndex, "active");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeIndex, follow, playing]);
 
   // ---------------------------------------------------------------- editing
-  type Snapshot = Pick<RecordingDetail, "segments" | "speakers" | "speakerNames">;
   const [history, setHistory] = useState<Snapshot[]>([]);
   const pushHistory = (r: RecordingDetail) =>
     setHistory((h) => [...h.slice(-49), { segments: r.segments, speakers: r.speakers, speakerNames: r.speakerNames }]);
-  type DialogState =
-    | null
-    | { kind: "rediarize" }
-    | { kind: "confirm"; title: string; text: string; danger?: boolean; onConfirm: () => void }
-    | { kind: "shortcuts" };
   const [dialog, setDialog] = useState<DialogState>(null);
-  const [rediarizeMode, setRediarizeMode] = useState<"auto" | "exact" | "range">("auto");
-  const [rediarizeCount, setRediarizeCount] = useState("");
-  const [rediarizeMin, setRediarizeMin] = useState("");
-  const [rediarizeMax, setRediarizeMax] = useState("");
-  const [copied, setCopied] = useState(false);
-  const [copyOpen, setCopyOpen] = useState(false);
-  const [exportOpen, setExportOpen] = useState(false);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
-  const [editDraft, setEditDraft] = useState("");
-  const [editStart, setEditStart] = useState("");
-  const [editEnd, setEditEnd] = useState("");
-  const editRef = useRef<HTMLTextAreaElement>(null);
-  const [hintsDraft, setHintsDraft] = useState(rec.hints ?? "");
-  const [tagsDraft, setTagsDraft] = useState(rec.tags.join(", "));
-  const [notesDraft, setNotesDraft] = useState(rec.notes ?? "");
-  const [notesSaved, setNotesSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [glossarySuggest, setGlossarySuggest] = useState<string[] | null>(null);
   const [glossaryAdded, setGlossaryAdded] = useState(false);
   const glossaryRef = useRef<Set<string> | null>(null);
@@ -369,49 +196,16 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
     }
     return glossaryRef.current;
   };
-  useEffect(() => setTagsDraft(rec.tags.join(", ")), [rec.tags]);
-  useEffect(() => setNotesDraft(rec.notes ?? ""), [rec.notes]);
-  const [editingTitle, setEditingTitle] = useState(false);
-  const [titleDraft, setTitleDraft] = useState(rec.title);
-  const [names, setNames] = useState<Record<string, string>>(rec.speakerNames);
-  const [saving, setSaving] = useState(false);
 
-  useEffect(() => setNames(rec.speakerNames), [rec.speakerNames]);
-
-  const applySuggestions = async (speakers?: string[]) => {
+  /** Run a light transcript mutation; `undoable` records a snapshot first and drops it on failure. */
+  const mutate = async (path: string, init: RequestInit, undoable = false) => {
+    if (undoable) pushHistory(rec);
     setSaving(true);
     try {
-      applyMutation(await api<TranscriptMutationResult>(m, `/api/recordings/${rec.id}/speakers/apply-suggestions?light=1`, { method: "POST", body: JSON.stringify({ speakers }) }));
-    } catch (err) {
-      fail(err);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const saveNotes = async () => {
-    setNotesEditing(false);
-    if (notesDraft === (rec.notes ?? "")) return;
-    if (await patch({ notes: notesDraft })) {
-      setNotesSaved(true);
-      setTimeout(() => setNotesSaved(false), 1500);
-    }
-  };
-
-  const patch = async (body: {
-    title?: string;
-    speakerNames?: Record<string, string>;
-    hints?: string | null;
-    tags?: string;
-    notes?: string | null;
-    favorite?: boolean;
-    archived?: boolean;
-  }) => {
-    setSaving(true);
-    try {
-      applyMutation(await api<TranscriptMutationResult>(m, `/api/recordings/${rec.id}?light=1`, { method: "PATCH", body: JSON.stringify(body) }));
+      applyMutation(await api<TranscriptMutationResult>(m, path, init));
       return true;
     } catch (err) {
+      if (undoable) setHistory((h) => h.slice(0, -1));
       fail(err);
       return false;
     } finally {
@@ -419,18 +213,13 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
     }
   };
 
-  const applyEdits = async (edits: SegmentEdit[]) => {
-    pushHistory(rec);
-    setSaving(true);
-    try {
-      applyMutation(await api<TranscriptMutationResult>(m, `/api/recordings/${rec.id}/segments?light=1`, { method: "PATCH", body: JSON.stringify({ edits }) }));
-    } catch (err) {
-      setHistory((h) => h.slice(0, -1));
-      fail(err);
-    } finally {
-      setSaving(false);
-    }
-  };
+  const patch = (body: RecordingPatch) => mutate(`/api/recordings/${rec.id}?light=1`, { method: "PATCH", body: JSON.stringify(body) });
+
+  const applySuggestions = (speakers?: string[]) =>
+    void mutate(`/api/recordings/${rec.id}/speakers/apply-suggestions?light=1`, { method: "POST", body: JSON.stringify({ speakers }) });
+
+  const applyEdits = (edits: SegmentEdit[]) =>
+    mutate(`/api/recordings/${rec.id}/segments?light=1`, { method: "PATCH", body: JSON.stringify({ edits }) }, true);
 
   const mergeSpeaker = (from: string, into: string) => {
     if (!into || from === into) return;
@@ -438,21 +227,9 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
       kind: "confirm",
       title: m.detail.mergeTitle,
       text: fmt(m.detail.confirmMerge, { from: label(from), into: label(into) }),
-      onConfirm: () => void doMergeSpeaker(from, into),
+      onConfirm: () =>
+        void mutate(`/api/recordings/${rec.id}/speakers/merge?light=1`, { method: "POST", body: JSON.stringify({ from, into }) }, true),
     });
-  };
-
-  const doMergeSpeaker = async (from: string, into: string) => {
-    pushHistory(rec);
-    setSaving(true);
-    try {
-      applyMutation(await api<TranscriptMutationResult>(m, `/api/recordings/${rec.id}/speakers/merge?light=1`, { method: "POST", body: JSON.stringify({ from, into }) }));
-    } catch (err) {
-      setHistory((h) => h.slice(0, -1));
-      fail(err);
-    } finally {
-      setSaving(false);
-    }
   };
 
   const assignTurn = async (turnSegments: number[], value: string) => {
@@ -483,46 +260,7 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
     }
   };
 
-  const copyTranscript = async (format: "txt" | "md") => {
-    setCopyOpen(false);
-    try {
-      const text = await (await fetch(`/api/recordings/${rec.id}/export?format=${format}`)).text();
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
-    } catch (err) {
-      fail(err);
-    }
-  };
-
-  const fmtSec = (v: number) => {
-    const s = Math.max(0, v);
-    const mm = Math.floor(s / 60);
-    const ss = (s - mm * 60).toFixed(1).padStart(4, "0");
-    return `${mm}:${ss}`;
-  };
-  const parseSec = (v: string): number | null => {
-    const t = v.trim();
-    if (!t) return null;
-    const parts = t.split(":").map((x) => Number(x.replace(",", ".")));
-    if (parts.some((x) => !Number.isFinite(x))) return null;
-    return parts.reduce((a, x) => a * 60 + x, 0);
-  };
-
-  const startEdit = (index: number) => {
-    const seg = rec.segments[index];
-    setEditingIndex(index);
-    setEditDraft(seg?.text ?? "");
-    setEditStart(seg ? fmtSec(seg.start) : "");
-    setEditEnd(seg ? fmtSec(seg.end) : "");
-  };
-
-  const splitAtCursor = async () => {
-    if (editingIndex === null) return;
-    const index = editingIndex;
-    const ta = editRef.current;
-    const position = ta ? ta.selectionStart : Math.floor(editDraft.length / 2);
-    const text = editDraft.trim();
+  const splitSegment = async (index: number, text: string, position: number) => {
     setEditingIndex(null);
     pushHistory(rec);
     setSaving(true);
@@ -538,15 +276,11 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
       setSaving(false);
     }
   };
-  const commitEdit = async () => {
-    if (editingIndex === null) return;
-    const index = editingIndex;
+
+  const commitEdit = async (index: number, { text, start, end }: SegmentDraft) => {
     const seg = rec.segments[index];
-    const text = editDraft.trim();
     const before = seg?.text ?? "";
     setEditingIndex(null);
-    const start = parseSec(editStart);
-    const end = parseSec(editEnd);
     const timeChanged = seg && ((start != null && Math.abs(start - seg.start) > 0.01) || (end != null && Math.abs(end - seg.end) > 0.01));
     if ((!text || text === before) && !timeChanged) return;
     const edit: SegmentEdit = { index };
@@ -578,34 +312,15 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
     }
   };
 
-  const saveTitle = async () => {
-    setEditingTitle(false);
-    if (titleDraft.trim() && titleDraft.trim() !== rec.title) await patch({ title: titleDraft });
-  };
-
   const saveNames = async () => {
     if (JSON.stringify(names) !== JSON.stringify(rec.speakerNames)) await patch({ speakerNames: names });
   };
 
-  const [actionError, setActionError] = useState<string | null>(null);
-  const rediarize = () => {
-    setRediarizeCount(rec.speakerCount && rec.speakerCount > 1 ? String(rec.speakerCount) : "");
-    setRediarizeMode("auto");
-    setDialog({ kind: "rediarize" });
-  };
-
-  const submitRediarize = async () => {
+  const submitRediarize = async (options: RediarizeOptions) => {
     setDialog(null);
-    const int = (v: string) => (Number.isInteger(Number(v)) && Number(v) > 0 ? Number(v) : undefined);
-    const body =
-      rediarizeMode === "exact"
-        ? { minSpeakers: int(rediarizeCount), maxSpeakers: int(rediarizeCount) }
-        : rediarizeMode === "range"
-          ? { minSpeakers: int(rediarizeMin), maxSpeakers: int(rediarizeMax) }
-          : {};
     setActionError(null);
     try {
-      setRec(await api<RecordingDetail>(m, `/api/recordings/${rec.id}/rediarize`, { method: "POST", body: JSON.stringify(body) }));
+      setRec(await api<RecordingDetail>(m, `/api/recordings/${rec.id}/rediarize`, { method: "POST", body: JSON.stringify(options) }));
       requestWorkerRefresh();
     } catch (err) {
       setActionError(fmt(m.detail.rediarizeStartFailed, { detail: (err as Error).message }));
@@ -629,12 +344,6 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
       })(),
     });
 
-  const retry = () => {
-    if (rec.status === "COMPLETED") {
-      setDialog({ kind: "confirm", title: m.detail.reprocessTitle, text: fmt(m.detail.confirmReprocess, { title: rec.title }), onConfirm: () => void doRetry() });
-    } else void doRetry();
-  };
-
   const doRetry = async () => {
     try {
       setRec(await api<RecordingDetail>(m, `/api/recordings/${rec.id}/retry`, { method: "POST" }));
@@ -644,8 +353,13 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
     }
   };
 
+  const retry = () => {
+    if (rec.status === "COMPLETED") {
+      setDialog({ kind: "confirm", title: m.detail.reprocessTitle, text: fmt(m.detail.confirmReprocess, { title: rec.title }), onConfirm: () => void doRetry() });
+    } else void doRetry();
+  };
+
   const label = (id: string) => speakerLabel(id, rec.speakers, names, m);
-  const langLabel = (m.languages as Record<string, string>)[rec.language] ?? rec.language;
   const phase = phaseLabel(rec.phase, m);
   const err = errorLabel(rec.error, m);
 
@@ -673,15 +387,15 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
         e.preventDefault();
         const dir = key === "j" ? 1 : -1;
         const cur = turns.findIndex((t) => t.segments.some((sg) => sg.index === activeIndex));
-        const base = cur >= 0 ? cur : dir > 0 ? -1 : turns.findIndex((t) => t.start > time) - 0;
+        const base = cur >= 0 ? cur : dir > 0 ? -1 : turns.findIndex((t) => t.start > time);
         const next = turns[Math.max(0, Math.min(turns.length - 1, base + dir))];
         if (next) seekTo(next.start, true);
       } else if ((key === "n" || key === "p") && matchCount > 0) {
         e.preventDefault();
-        setMatchCursor((c) => (c + (key === "n" ? 1 : matchCount - 1)) % matchCount);
+        stepMatch(key === "n" ? 1 : -1);
       } else if (key === "e" && activeIndex >= 0 && rec.status === "COMPLETED") {
         e.preventDefault();
-        startEdit(activeIndex);
+        setEditingIndex(activeIndex);
       } else if (key === "?") {
         e.preventDefault();
         setDialog({ kind: "shortcuts" });
@@ -695,146 +409,16 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
   // ------------------------------------------------------------------ render
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-[16rem] flex-1 basis-[28rem]">
-          <Link href="/" className="text-sm text-zinc-500 hover:underline print:hidden">
-            {m.detail.back}
-          </Link>
-          {editingTitle ? (
-            <input
-              autoFocus
-              className="input mt-1 text-xl font-semibold"
-              value={titleDraft}
-              onChange={(e) => setTitleDraft(e.target.value)}
-              onBlur={saveTitle}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void saveTitle();
-                if (e.key === "Escape") {
-                  setTitleDraft(rec.title);
-                  setEditingTitle(false);
-                }
-              }}
-            />
-          ) : (
-            <h1
-              className="mt-1 cursor-text break-words text-2xl font-semibold hover:opacity-80"
-              title={m.detail.renameHint}
-              onClick={() => {
-                setTitleDraft(rec.title);
-                setEditingTitle(true);
-              }}
-            >
-              {rec.title}
-            </h1>
-          )}
-          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-zinc-500">
-            <StatusBadge status={rec.status} title={phase} progress={rec.progress} />
-            <span>{formatDate(rec.createdAt, locale, tz)}</span>
-            <span>{formatDuration(rec.durationSec, m)}</span>
-            <span>{langLabel}</span>
-            {rec.speakerCount != null && <span>{fmt(m.detail.speakersCount, { n: rec.speakerCount })}</span>}
-            <span className="truncate" title={rec.originalFilename}>
-              {rec.originalFilename}
-            </span>
-          </div>
-          <div className="mt-2 flex flex-wrap items-center gap-1.5">
-            {rec.tags.map((t) => (
-              <Link key={t} href={`/?tag=${encodeURIComponent(t)}`} className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700">
-                {t}
-              </Link>
-            ))}
-            <input
-              className="input w-56 max-w-full py-0.5 text-xs print:hidden"
-              value={tagsDraft}
-              placeholder={m.tags.placeholder}
-              aria-label={m.tags.label}
-              onChange={(e) => setTagsDraft(e.target.value)}
-              onBlur={() => tagsDraft !== rec.tags.join(", ") && void patch({ tags: tagsDraft })}
-              onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-            />
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 print:hidden">
-          <button
-            className={`btn ${rec.favorite ? "text-amber-500" : ""}`}
-            title={rec.favorite ? m.listx.unstar : m.listx.star}
-            aria-label={rec.favorite ? m.listx.unstar : m.listx.star}
-            aria-pressed={rec.favorite}
-            onClick={() => patch({ favorite: !rec.favorite })}
-          >
-            {rec.favorite ? "★" : "☆"}
-          </button>
-          <button className="btn" title={rec.archived ? m.listx.unarchive : m.listx.archive} onClick={() => patch({ archived: !rec.archived })}>
-            {rec.archived ? `⤴ ${m.listx.unarchive}` : `🗄 ${m.listx.archive}`}
-          </button>
-          {rec.status === "COMPLETED" && (
-            <div className="relative">
-              <button className="btn" onClick={() => setExportOpen((o) => !o)} aria-haspopup="menu" aria-expanded={exportOpen}>
-                ⬇ {m.detail.export.replace(/:$/, "")} ▾
-              </button>
-              {exportOpen && (
-                <div className="card absolute right-0 z-20 mt-1 flex min-w-[11rem] flex-col p-1 text-sm">
-                  {EXPORTS.map((f) => (
-                    <a key={f} className="rounded px-3 py-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-800" href={`/api/recordings/${rec.id}/export?format=${f}`} onClick={() => setExportOpen(false)}>
-                      {m.detail.exportFormats[f]}
-                    </a>
-                  ))}
-                  {rec.audioUrl && (
-                    <a className="rounded border-t border-zinc-200 px-3 py-1.5 hover:bg-zinc-100 dark:border-zinc-800 dark:hover:bg-zinc-800" href={`${rec.audioUrl}?download=1`} download onClick={() => setExportOpen(false)}>
-                      {m.detail.downloadAudio}
-                    </a>
-                  )}
-                  <button
-                    className="rounded border-t border-zinc-200 px-3 py-1.5 text-left hover:bg-zinc-100 dark:border-zinc-800 dark:hover:bg-zinc-800"
-                    onClick={() => {
-                      setExportOpen(false);
-                      window.print();
-                    }}
-                    data-testid="print"
-                  >
-                    🖨 {m.detail.print}
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-          {rec.status === "COMPLETED" && rec.segments.length > 0 && (
-            <div className="relative">
-              <button className="btn" onClick={() => setCopyOpen((o) => !o)} title={m.detail.copy} aria-haspopup="menu" aria-expanded={copyOpen}>
-                📋 {copied ? m.detail.copied : m.detail.copy} ▾
-              </button>
-              {copyOpen && (
-                <div className="card absolute right-0 z-20 mt-1 flex min-w-[10rem] flex-col p-1 text-sm">
-                  <button className="rounded px-3 py-1.5 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800" onClick={() => copyTranscript("txt")}>
-                    {m.detail.copyText}
-                  </button>
-                  <button className="rounded px-3 py-1.5 text-left hover:bg-zinc-100 dark:hover:bg-zinc-800" onClick={() => copyTranscript("md")}>
-                    {m.detail.copyMarkdown}
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-          {rec.status === "COMPLETED" && history.length > 0 && (
-            <button className="btn" onClick={undo} title={m.detail.undoHint}>
-              ↶ {m.detail.undo}
-            </button>
-          )}
-          {rec.status === "COMPLETED" && rec.audioUrl && rec.segments.length > 0 && (
-            <button className="btn" onClick={rediarize} title={m.detail.rediarizeHint}>
-              👥 {m.detail.rediarize}
-            </button>
-          )}
-          {rec.status === "COMPLETED" && (
-            <button className="btn" onClick={retry} title={m.detail.confirmReprocess.split("?")[0]}>
-              ↻ {m.detail.reprocess}
-            </button>
-          )}
-          <button className="btn btn-danger" onClick={remove}>
-            {m.detail.delete}
-          </button>
-        </div>
-      </div>
+      <RecordingHeader
+        rec={rec}
+        canUndo={history.length > 0}
+        onPatch={patch}
+        onUndo={undo}
+        onRediarize={() => setDialog({ kind: "rediarize" })}
+        onRetry={retry}
+        onDelete={remove}
+        onError={fail}
+      />
 
       {inflight && (
         <div className="card p-5">
@@ -846,9 +430,7 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
             <div className="h-full bg-blue-500 transition-all duration-500" style={{ width: `${rec.progress}%` }} />
           </div>
           {err && <p className="mt-2 text-xs text-amber-600">{err}</p>}
-          <p className="mt-3 text-xs text-zinc-500">
-            {m.detail.autoRefresh}
-          </p>
+          <p className="mt-3 text-xs text-zinc-500">{m.detail.autoRefresh}</p>
         </div>
       )}
 
@@ -886,46 +468,7 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
         </div>
       )}
 
-      <section className="card p-4" data-print={rec.notes ? "notes" : "hide"}>
-        {rec.notes && (
-          <div className="hidden print:block">
-            <h2 className="text-sm font-semibold">{m.notes.label}</h2>
-            <Markdown text={rec.notes} />
-          </div>
-        )}
-        <div className="mb-1 flex items-center justify-between print:hidden">
-          <h2 className="text-sm font-semibold">{m.notes.label}</h2>
-          <span className="flex items-center gap-2 text-xs text-zinc-500">
-            {notesSaved ? m.notes.saved : ""}
-            {!notesEditing && (
-              <button className="btn py-0.5 text-xs" onClick={() => setNotesEditing(true)} data-testid="notes-edit">
-                ✎ {m.notes.edit}
-              </button>
-            )}
-          </span>
-        </div>
-        {notesEditing ? (
-          <textarea
-            className="input min-h-[96px] text-sm"
-            autoFocus
-            value={notesDraft}
-            placeholder={m.notes.placeholder}
-            aria-label={m.notes.label}
-            onChange={(e) => setNotesDraft(e.target.value)}
-            onBlur={saveNotes}
-            onKeyDown={(e) => e.key === "Escape" && saveNotes()}
-            data-print="hide"
-          />
-        ) : rec.notes ? (
-          <div className="cursor-text print:hidden" onClick={() => setNotesEditing(true)} data-testid="notes-preview">
-            <Markdown text={rec.notes} />
-          </div>
-        ) : (
-          <p className="cursor-text text-sm text-zinc-400 print:hidden" onClick={() => setNotesEditing(true)}>
-            {m.notes.empty}
-          </p>
-        )}
-      </section>
+      <NotesCard notes={rec.notes} onSave={(notes) => patch({ notes })} />
 
       {rec.status === "COMPLETED" && (
         <div className="grid gap-5 lg:grid-cols-[1fr_260px]">
@@ -941,33 +484,30 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
                     ref={searchRef}
                     type="search"
                     className="input w-44 py-0.5 text-xs"
-                    value={query}
+                    value={search.query}
                     placeholder={m.detail.searchInTranscript}
                     aria-label={m.detail.searchInTranscript}
                     data-testid="transcript-search"
-                    onChange={(e) => {
-                      setQuery(e.target.value);
-                      setMatchCursor(0);
-                    }}
+                    onChange={(e) => search.setQuery(e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" && matchCount > 0) {
                         e.preventDefault();
-                        setMatchCursor((c) => (c + (e.shiftKey ? matchCount - 1 : 1)) % matchCount);
+                        stepMatch(e.shiftKey ? -1 : 1);
                       } else if (e.key === "Escape") {
-                        setQuery("");
+                        search.setQuery("");
                         (e.target as HTMLInputElement).blur();
                       }
                     }}
                   />
                   {matcher && (
                     <>
-                      <span data-testid="match-count">{fmt(m.detail.searchMatches, { n: matchCount, q: query.trim() })}</span>
+                      <span data-testid="match-count">{fmt(m.detail.searchMatches, { n: matchCount, q: search.query.trim() })}</span>
                       {matchCount > 1 && (
                         <>
-                          <button className="btn px-1.5 py-0.5 text-xs" onClick={() => setMatchCursor((c) => (c + matchCount - 1) % matchCount)} aria-label={m.detail.prevMatch}>
+                          <button className="btn px-1.5 py-0.5 text-xs" onClick={() => stepMatch(-1)} aria-label={m.detail.prevMatch}>
                             ‹
                           </button>
-                          <button className="btn px-1.5 py-0.5 text-xs" onClick={() => setMatchCursor((c) => (c + 1) % matchCount)} aria-label={m.detail.nextMatch}>
+                          <button className="btn px-1.5 py-0.5 text-xs" onClick={() => stepMatch(1)} aria-label={m.detail.nextMatch}>
                             ›
                           </button>
                         </>
@@ -1005,309 +545,65 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
               <p className="text-sm text-zinc-500">{m.detail.noSpeech}</p>
             ) : (
               <div
-                ref={listRef}
+                ref={win.listRef}
                 data-testid="turns"
-                data-virtual={virtual ? "1" : "0"}
+                data-virtual={win.virtual ? "1" : "0"}
                 // overflow-anchor: none, otherwise Chrome's scroll anchoring undoes programmatic jumps when the window re-renders
                 style={{ overflowAnchor: "none" }}
               >
-                {virtual && <div style={{ height: offsetOf(range[0]) }} aria-hidden />}
-                {turns.slice(virtual ? range[0] : 0, virtual ? range[1] : turns.length).map((turn, k) => {
-                  const ti = (virtual ? range[0] : 0) + k;
-                  const c = speakerColor(turn.speaker, rec.speakers);
+                {win.virtual && <div style={{ height: win.topSpacer }} aria-hidden />}
+                {win.visible.map((turn, k) => {
+                  const ti = win.start + k;
                   return (
-                    <div key={ti} ref={measure(ti)} className="turn mb-4 rounded-md border-l-4 pl-3" style={{ borderColor: c.border, background: c.bg }}>
-                      <div className="group flex items-baseline gap-2 pt-1.5">
-                        <span className="text-sm font-semibold" style={{ color: c.fg }}>
-                          {label(turn.speaker)}
-                        </span>
-                        <button
-                          className="font-mono text-xs text-zinc-500 hover:underline"
-                          onClick={() => seekTo(turn.start, true)}
-                        >
-                          {formatTime(turn.start)}
-                        </button>
-                        <select
-                          className="ml-auto mr-2 rounded border border-zinc-300 bg-white px-1 py-0.5 text-xs text-zinc-600 opacity-0 transition focus:opacity-100 group-hover:opacity-100 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
-                          title={m.detail.assignSpeaker}
-                          aria-label={m.detail.assignSpeaker}
-                          value={turn.speaker}
-                          onChange={(e) => assignTurn(turn.segments.map((sg) => sg.index), e.target.value)}
-                        >
-                          {rec.speakers.map((id) => (
-                            <option key={id} value={id}>
-                              {label(id)}
-                            </option>
-                          ))}
-                          <option value="__new__">{m.detail.newSpeaker}</option>
-                        </select>
-                      </div>
-                      <p className="pb-2 pt-0.5 text-[15px] leading-relaxed">
-                        {turn.segments.map((seg) => {
-                          const active = seg.index === activeIndex;
-                          if (editingIndex === seg.index) {
-                            return (
-                              <span key={seg.index} className="my-1 block rounded-md border border-blue-300 bg-white p-2 dark:border-blue-800 dark:bg-zinc-900" data-testid="segment-editor" onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
-                                <textarea
-                                  ref={editRef}
-                                  autoFocus
-                                  className="input min-h-[60px] text-[15px]"
-                                  value={editDraft}
-                                  onChange={(e) => setEditDraft(e.target.value)}
-                                  onKeyDown={(e) => {
-                                    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-                                      e.preventDefault();
-                                      void splitAtCursor();
-                                    } else if (e.key === "Enter" && !e.shiftKey) {
-                                      e.preventDefault();
-                                      void commitEdit();
-                                    } else if (e.key === "Escape") {
-                                      setEditingIndex(null);
-                                    }
-                                  }}
-                                />
-                                <span className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-                                  <label className="flex items-center gap-1 text-zinc-500">
-                                    {m.detail.timeStart}
-                                    <input className="input w-20 py-0.5 font-mono text-xs" value={editStart} onChange={(e) => setEditStart(e.target.value)} aria-label={m.detail.timeStart} />
-                                  </label>
-                                  <label className="flex items-center gap-1 text-zinc-500">
-                                    {m.detail.timeEnd}
-                                    <input className="input w-20 py-0.5 font-mono text-xs" value={editEnd} onChange={(e) => setEditEnd(e.target.value)} aria-label={m.detail.timeEnd} />
-                                  </label>
-                                  <span className="ml-auto flex gap-1">
-                                    <button className="btn py-0.5 text-xs" onClick={splitAtCursor} title={m.detail.splitHint}>
-                                      ✂ {m.detail.split}
-                                    </button>
-                                    <button className="btn py-0.5 text-xs" onClick={() => setEditingIndex(null)}>
-                                      {m.detail.cancel}
-                                    </button>
-                                    <button className="btn btn-primary py-0.5 text-xs" onClick={commitEdit}>
-                                      {m.detail.save}
-                                    </button>
-                                  </span>
-                                </span>
-                              </span>
-                            );
-                          }
-                          const words = active && seg.words?.length ? seg.words : null;
-                          const counter = { n: matchOffsets.get(seg.index) ?? 0 };
-                          return (
-                            <span
-                              key={seg.index}
-                              ref={active ? activeRef : undefined}
-                              onClick={() => seekTo(seg.start, true)}
-                              onDoubleClick={(e) => {
-                                e.preventDefault();
-                                startEdit(seg.index);
-                              }}
-                              title={`${formatTime(seg.start)} – ${formatTime(seg.end)}`}
-                              className={`cursor-pointer rounded px-0.5 transition ${
-                                active ? "bg-yellow-100 dark:bg-yellow-900/40" : "hover:bg-zinc-200/60 dark:hover:bg-zinc-700/50"
-                              }`}
-                            >
-                              {words
-                                ? words.map((w, wi) => (
-                                    <span
-                                      key={wi}
-                                      onClick={(e) => {
-                                        if (w.start == null) return;
-                                        e.stopPropagation();
-                                        seekTo(w.start, true);
-                                      }}
-                                      className={wi === activeWord ? "rounded bg-yellow-300 dark:bg-yellow-600/80" : undefined}
-                                    >
-                                      {matcher ? highlightMatches(w.word, matcher, counter, matchCursor, matchRef) : w.word}{" "}
-                                    </span>
-                                  ))
-                                : matcher
-                                  ? highlightMatches(seg.text, matcher, counter, matchCursor, matchRef)
-                                  : seg.text}
-                              {!words && " "}
-                            </span>
-                          );
-                        })}
-                      </p>
-                    </div>
+                    <TranscriptTurn
+                      key={ti}
+                      turn={turn}
+                      speakers={rec.speakers}
+                      label={label}
+                      activeIndex={activeIndex}
+                      activeWord={activeWord}
+                      activeRef={activeRef}
+                      editingIndex={editingIndex}
+                      renderEditor={(seg) => (
+                        <SegmentEditor
+                          key={seg.index}
+                          segment={seg}
+                          onCommit={(draft) => void commitEdit(seg.index, draft)}
+                          onSplit={(text, position) => void splitSegment(seg.index, text, position)}
+                          onCancel={() => setEditingIndex(null)}
+                        />
+                      )}
+                      search={search}
+                      measureRef={win.measure(ti)}
+                      onSeek={(t) => seekTo(t, true)}
+                      onStartEdit={setEditingIndex}
+                      onAssign={assignTurn}
+                    />
                   );
                 })}
-                {virtual && <div style={{ height: Math.max(0, offsetOf(turns.length) - offsetOf(range[1])) }} aria-hidden />}
+                {win.virtual && <div style={{ height: win.bottomSpacer }} aria-hidden />}
               </div>
             )}
           </section>
 
-          <aside className="card h-fit p-5 lg:sticky lg:top-40 print:static print:break-inside-avoid" data-print="aside">
-            <h2 className="mb-3 font-semibold">{m.detail.speakers}</h2>
-            {Object.keys(rec.speakerSuggestions).some((id) => !names[id]) && (
-              <button className="btn mb-3 w-full justify-center py-1 text-xs" onClick={() => applySuggestions()} data-testid="apply-all-suggestions">
-                ✨ {m.voices.applyAll}
-              </button>
-            )}
-            {rec.speakers.length === 0 ? (
-              <p className="text-sm text-zinc-500">{m.detail.noSpeakers}</p>
-            ) : (
-              <div className="space-y-2">
-                {rec.speakers.map((id) => {
-                  const c = speakerColor(id, rec.speakers);
-                  return (
-                    <div key={id} className="flex items-center gap-2">
-                      <span className="h-3 w-3 shrink-0 rounded-full" style={{ background: c.fg }} />
-                      <input
-                        className="input py-1"
-                        value={names[id] ?? ""}
-                        placeholder={label(id)}
-                        onChange={(e) => setNames((n) => ({ ...n, [id]: e.target.value }))}
-                        onBlur={saveNames}
-                        onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-                      />
-                      {rec.speakerSuggestions[id] && !names[id] && (
-                        <button
-                          className="shrink-0 rounded border border-blue-300 bg-blue-50 px-1.5 py-1 text-xs text-blue-700 hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-950 dark:text-blue-300"
-                          title={`${fmt(m.voices.looksLike, { name: rec.speakerSuggestions[id].name })} · ${Math.round(rec.speakerSuggestions[id].score * 100)} % · ${rec.speakerSuggestions[id].score >= 0.7 ? m.voices.strong : m.voices.weak}`}
-                          onClick={() => applySuggestions([id])}
-                          data-testid={`suggestion-${id}`}
-                        >
-                          ✨ {rec.speakerSuggestions[id].name} {Math.round(rec.speakerSuggestions[id].score * 100)} %
-                        </button>
-                      )}
-                      {rec.speakers.length > 1 && (
-                        <select
-                          className="w-8 shrink-0 rounded border border-zinc-300 bg-white py-1 text-xs text-zinc-500 dark:border-zinc-700 dark:bg-zinc-900"
-                          title={m.detail.mergeInto}
-                          aria-label={`${m.detail.mergeInto} ${label(id)}`}
-                          value=""
-                          onChange={(e) => mergeSpeaker(id, e.target.value)}
-                        >
-                          <option value="">⇄</option>
-                          {rec.speakers
-                            .filter((other) => other !== id)
-                            .map((other) => (
-                              <option key={other} value={other}>
-                                → {label(other)}
-                              </option>
-                            ))}
-                        </select>
-                      )}
-                    </div>
-                  );
-                })}
-                <p className="pt-1 text-xs text-zinc-500 print:hidden">
-                  {saving ? m.detail.saving : rec.speakersWithEmbedding.length > 0 ? `${m.detail.renameNote} ${m.voices.help}` : m.detail.renameNote}
-                </p>
-              </div>
-            )}
-            {stats.rows.length > 0 && (
-              <div className="mt-5 border-t border-zinc-200 pt-4 dark:border-zinc-800" data-testid="speaker-stats">
-                <h3 className="mb-2 text-sm font-semibold">{m.stats.title}</h3>
-                <div className="space-y-2">
-                  {stats.rows.map((r) => {
-                    const c = speakerColor(r.speaker, rec.speakers);
-                    return (
-                      <div key={r.speaker} className="text-xs">
-                        <div className="flex justify-between gap-2">
-                          <span className="truncate font-medium" style={{ color: c.fg }}>
-                            {label(r.speaker)}
-                          </span>
-                          <span className="shrink-0 tabular-nums text-zinc-500">
-                            {Math.round(r.share * 100)} % · {formatTime(r.seconds)} · {r.turns} {m.stats.turns} · {r.words} {m.stats.words}
-                          </span>
-                        </div>
-                        <div className="mt-0.5 h-1.5 overflow-hidden rounded bg-zinc-200 dark:bg-zinc-700">
-                          <div className="h-full" style={{ width: `${Math.max(2, r.share * 100)}%`, background: c.fg }} />
-                        </div>
-                      </div>
-                    );
-                  })}
-                  <p className="text-xs text-zinc-500">
-                    {fmt(m.stats.totalTurns, { n: stats.speakerChanges })} · {fmt(m.stats.longest, { d: formatTime(stats.longestTurnSeconds) })}
-                  </p>
-                </div>
-              </div>
-            )}
-            <div className="mt-5 border-t border-zinc-200 pt-4 dark:border-zinc-800 print:hidden">
-              <h3 className="mb-1 text-sm font-semibold">{m.detail.hintsTitle}</h3>
-              <textarea
-                className="input min-h-[64px] text-sm"
-                value={hintsDraft}
-                onChange={(e) => setHintsDraft(e.target.value)}
-                placeholder={m.upload.hintsPlaceholder}
-              />
-              <div className="mt-2 flex items-center gap-2">
-                <button className="btn py-1 text-xs" disabled={hintsDraft === (rec.hints ?? "")} onClick={() => patch({ hints: hintsDraft })}>
-                  {m.detail.hintsSave}
-                </button>
-                <span className="text-xs text-zinc-500">{m.detail.hintsNote}</span>
-              </div>
-            </div>
-          </aside>
+          <SpeakersPanel
+            rec={rec}
+            names={names}
+            label={label}
+            stats={stats}
+            saving={saving}
+            onNameChange={(id, name) => setNames((n) => ({ ...n, [id]: name }))}
+            onNamesCommit={saveNames}
+            onApplySuggestions={applySuggestions}
+            onMerge={mergeSpeaker}
+            onSaveHints={(hints) => void patch({ hints })}
+          />
         </div>
       )}
 
-      <Dialog
-        open={dialog?.kind === "rediarize"}
-        title={m.detail.rediarizeTitle}
-        onClose={() => setDialog(null)}
-        actions={
-          <>
-            <button className="btn" onClick={() => setDialog(null)}>
-              {m.detail.cancel}
-            </button>
-            <button className="btn btn-primary" onClick={submitRediarize}>
-              {m.detail.start}
-            </button>
-          </>
-        }
-      >
-        <p className="text-zinc-600 dark:text-zinc-300">{m.detail.rediarizeText}</p>
-        <label className="flex items-center gap-2">
-          <input type="radio" name="rmode" checked={rediarizeMode === "auto"} onChange={() => setRediarizeMode("auto")} /> {m.detail.rediarizeAuto}
-        </label>
-        <label className="flex items-center gap-2">
-          <input type="radio" name="rmode" checked={rediarizeMode === "exact"} onChange={() => setRediarizeMode("exact")} /> {m.detail.rediarizeExact}
-          <input className="input w-20 py-1" type="number" min={1} max={30} value={rediarizeCount} onFocus={() => setRediarizeMode("exact")} onChange={(e) => setRediarizeCount(e.target.value)} />
-        </label>
-        <label className="flex items-center gap-2">
-          <input type="radio" name="rmode" checked={rediarizeMode === "range"} onChange={() => setRediarizeMode("range")} /> {m.detail.rediarizeRange}
-          <input className="input w-20 py-1" type="number" min={1} max={30} value={rediarizeMin} onFocus={() => setRediarizeMode("range")} onChange={(e) => setRediarizeMin(e.target.value)} />
-          –
-          <input className="input w-20 py-1" type="number" min={1} max={30} value={rediarizeMax} onFocus={() => setRediarizeMode("range")} onChange={(e) => setRediarizeMax(e.target.value)} />
-        </label>
-      </Dialog>
-
-      <Dialog
-        open={dialog?.kind === "confirm"}
-        title={dialog?.kind === "confirm" ? dialog.title : ""}
-        onClose={() => setDialog(null)}
-        actions={
-          <>
-            <button className="btn" onClick={() => setDialog(null)}>
-              {m.detail.cancel}
-            </button>
-            <button
-              className={`btn ${dialog?.kind === "confirm" && dialog.danger ? "btn-danger" : "btn-primary"}`}
-              onClick={() => {
-                const d = dialog;
-                setDialog(null);
-                if (d?.kind === "confirm") d.onConfirm();
-              }}
-            >
-              {m.detail.confirm}
-            </button>
-          </>
-        }
-      >
-        <p>{dialog?.kind === "confirm" ? dialog.text : ""}</p>
-      </Dialog>
-
-      <Dialog open={dialog?.kind === "shortcuts"} title={m.detail.shortcuts} onClose={() => setDialog(null)}>
-        <ul className="space-y-1">
-          {Object.values(m.detail.shortcutList).map((line) => (
-            <li key={line} className="text-zinc-700 dark:text-zinc-300">
-              {line}
-            </li>
-          ))}
-        </ul>
-      </Dialog>
+      <RediarizeDialog open={dialog?.kind === "rediarize"} speakerCount={rec.speakerCount} onClose={() => setDialog(null)} onSubmit={submitRediarize} />
+      <ConfirmDialog request={dialog?.kind === "confirm" ? dialog : null} onClose={() => setDialog(null)} />
+      <ShortcutsDialog open={dialog?.kind === "shortcuts"} onClose={() => setDialog(null)} />
     </div>
   );
 }
