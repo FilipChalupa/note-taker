@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
-import { completedRecording, uploadRecording } from "./helpers";
+import { completedRecording, isolate, uploadRecording } from "./helpers";
+
+isolate();
 
 test("failed actions show a toast instead of silently doing nothing", async ({ page, request }) => {
   const rec = await completedRecording(request, "Toast test");

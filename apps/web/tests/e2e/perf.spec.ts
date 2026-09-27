@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
-import { completedRecording } from "./helpers";
+import { completedRecording, isolate } from "./helpers";
+
+isolate();
 
 test("dates follow the browser time zone, also in the server-rendered HTML", async ({ browser, request }) => {
   const rec = await completedRecording(request, "Timezone test");

@@ -2,7 +2,18 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { APIRequestContext } from "@playwright/test";
+import { test, type APIRequestContext } from "@playwright/test";
+import { WEB_URL } from "./constants";
+
+/** Call once at the top of a spec file: the file then starts with an empty library. */
+export function isolate(): void {
+  test.beforeAll(async ({ playwright }) => {
+    const ctx = await playwright.request.newContext({ baseURL: WEB_URL });
+    const res = await ctx.post("/api/e2e/reset");
+    await ctx.dispose();
+    if (res.status() !== 204) throw new Error(`reset failed with ${res.status()}`);
+  });
+}
 
 let tone: string | null = null;
 

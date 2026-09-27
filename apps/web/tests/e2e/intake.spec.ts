@@ -1,11 +1,15 @@
 import { expect, test } from "@playwright/test";
+import { INTAKE_CODE, INTAKE_TOKEN, INTAKE_URL } from "./constants";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { isolate } from "./helpers";
 
-const INTAKE = "http://127.0.0.1:8090";
-const CODE = "e2e-code";
+isolate();
+
+const INTAKE = INTAKE_URL;
+const CODE = INTAKE_CODE;
 
 /** 2.5 MB of audio so the upload spans several 1 MB chunks. */
 function mediumAudio(): string {
@@ -51,7 +55,7 @@ test.describe("public intake", () => {
     expect(detail.notes).toContain(`Intake ${reference}`);
     expect(detail.originalFilename).toBe("board-meeting.wav");
     await expect.poll(async () => (await (await request.get("/api/intake")).json()).pending, { timeout: 15_000 }).toBe(0);
-    const collectorView = await fetch(`${INTAKE}/collect/v1/items`, { headers: { Authorization: "Bearer e2e-collect-token" } });
+    const collectorView = await fetch(`${INTAKE}/collect/v1/items`, { headers: { Authorization: `Bearer ${INTAKE_TOKEN}` } });
     expect(((await collectorView.json()) as { items: unknown[] }).items).toHaveLength(0);
 
     // Settings shows the intake status

@@ -1,6 +1,8 @@
 import { expect, test } from "@playwright/test";
 import fs from "node:fs";
-import { completedRecording, toneFile, uploadRecording } from "./helpers";
+import { completedRecording, isolate, toneFile, uploadRecording } from "./helpers";
+
+isolate();
 
 test("favorites and archive: views, star toggle, archive hides from the default list", async ({ page, request }) => {
   const rec = await completedRecording(request, "Organize me");

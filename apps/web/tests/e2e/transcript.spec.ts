@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
-import { completedRecording, waitForStatus } from "./helpers";
+import { completedRecording, isolate, waitForStatus } from "./helpers";
+
+isolate();
 
 test("player keeps playing across navigation, word highlight and 3x speed", async ({ page, request }) => {
   const rec = await completedRecording(request, "Player test");

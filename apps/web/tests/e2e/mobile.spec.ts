@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
-import { completedRecording } from "./helpers";
+import { completedRecording, isolate } from "./helpers";
+
+isolate();
 
 test("no horizontal overflow and compact mini player on a phone", async ({ page, request }) => {
   const rec = await completedRecording(request, "Mobile test");

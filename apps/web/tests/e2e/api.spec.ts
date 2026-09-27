@@ -1,7 +1,9 @@
 import { expect, test } from "@playwright/test";
 import fs from "node:fs";
 import type { APIRequestContext } from "@playwright/test";
-import { toneFile, waitForStatus } from "./helpers";
+import { isolate, toneFile, waitForStatus } from "./helpers";
+
+isolate();
 
 async function createToken(request: APIRequestContext, name: string, scopes: string[], extra: Record<string, unknown> = {}) {
   const res = await request.post("/api/tokens", { data: { name, scopes, ...extra } });

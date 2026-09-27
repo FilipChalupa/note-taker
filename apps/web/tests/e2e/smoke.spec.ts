@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
-import { completedRecording, uploadRecording, waitForStatus } from "./helpers";
+import { completedRecording, isolate, uploadRecording, waitForStatus } from "./helpers";
+
+isolate();
 
 test("language follows Accept-Language and the cookie override", async ({ page, request }) => {
   expect(await (await request.get("/", { headers: { "Accept-Language": "cs" } })).text()).toContain('<html lang="cs"');

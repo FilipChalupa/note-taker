@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
-import { completedRecording, uploadRecording } from "./helpers";
+import { completedRecording, isolate, uploadRecording } from "./helpers";
+
+isolate();
 
 test("split a sentence at the cursor and edit its times", async ({ page, request }) => {
   const rec = await completedRecording(request, "Split test");
