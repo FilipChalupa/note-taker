@@ -73,7 +73,7 @@ test.describe("public intake", () => {
     const pageText = (await page.locator("body").innerText()).toLowerCase();
     for (const word of ["gpu", "cuda", "worker", "speaker", "recordings in", "vram"]) expect(pageText).not.toContain(word);
     const config = await (await fetch(`${INTAKE}/api/config`)).json();
-    expect(Object.keys(config).sort()).toEqual(["chunkBytes", "codeRequired", "defaultLanguage", "languages", "maxBytes", "title"]);
+    expect(Object.keys(config).sort()).toEqual(["accept", "chunkBytes", "codeRequired", "defaultLanguage", "languages", "maxBytes", "title"]);
 
     await page.getByRole("tab", { name: "Record" }).click();
     await page.getByRole("button", { name: /Start recording/ }).click();

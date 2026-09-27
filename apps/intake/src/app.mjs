@@ -14,7 +14,7 @@ import fsp from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { LANGUAGES, SUPPORTED_MEDIA } from "./config.mjs";
+import { LANGUAGES, MEDIA_ACCEPT, SUPPORTED_MEDIA } from "./config.mjs";
 import { Store, StoreError } from "./store.mjs";
 
 const PUBLIC_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "public");
@@ -158,6 +158,7 @@ export function createIntake(config) {
         chunkBytes: config.chunkBytes,
         defaultLanguage: config.defaultLanguage,
         languages: LANGUAGES,
+        accept: MEDIA_ACCEPT,
       });
     }
 

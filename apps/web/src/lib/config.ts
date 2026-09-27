@@ -28,7 +28,7 @@ export const config = {
   auditRetentionDays: num("AUDIT_RETENTION_DAYS", 30),
 } as const;
 
-export const SUPPORTED_MEDIA = /\.(mp3|mpga|m4a|m4b|wav|aac|ogg|oga|opus|flac|wma|aiff?|mka|webm|mp4|m4v|mov|mkv|avi|mpe?g|ts|3gp|amr)$/i;
+export { SUPPORTED_MEDIA } from "@note-taker/shared";
 
 export function recordingDir(id: string): string {
   return path.join(config.dataDir, "recordings", id);

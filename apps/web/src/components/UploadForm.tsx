@@ -3,13 +3,13 @@
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { RecordingDetail } from "@note-taker/shared";
+import { MEDIA_ACCEPT } from "@note-taker/shared";
 import { errorLabel, LANGUAGE_CODES } from "@/lib/format";
 import { fmt } from "@/lib/i18n";
 import { useI18n } from "@/lib/i18n/client";
 import { useDroppedFile } from "./DropProvider";
 import { requestWorkerRefresh } from "./WorkerStatus";
 
-const ACCEPT = ".mp3,.mpga,.m4a,.m4b,.wav,.aac,.ogg,.oga,.opus,.flac,.wma,.aif,.aiff,.mka,.webm,.mp4,.m4v,.mov,.mkv,.avi,.mpg,.mpeg,.ts,.3gp,.amr,audio/*,video/*";
 
 function fmtBytes(b: number): string {
   if (b > 1024 * 1024 * 1024) return `${(b / 1024 / 1024 / 1024).toFixed(2)} GB`;
@@ -111,7 +111,7 @@ export function UploadForm({ defaultLanguage, maxUploadBytes }: { defaultLanguag
         onClick={() => inputRef.current?.click()}
         className="flex cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-zinc-300 px-6 py-10 text-center transition hover:border-zinc-400 dark:border-zinc-700 dark:hover:border-zinc-500"
       >
-        <input ref={inputRef} type="file" accept={ACCEPT} className="hidden" onChange={(e) => pick(e.target.files?.[0])} />
+        <input ref={inputRef} type="file" accept={MEDIA_ACCEPT} className="hidden" onChange={(e) => pick(e.target.files?.[0])} />
         {file ? (
           <>
             <div className="text-base font-medium">{file.name}</div>

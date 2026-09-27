@@ -732,6 +732,7 @@ async function boot() {
   config = await api("/api/config");
   document.querySelectorAll("[data-bind=title]").forEach((el) => (el.textContent = config.title));
   document.title = config.title;
+  $("file-input").accept = config.accept;
   const canRecord = Boolean(navigator.mediaDevices?.getUserMedia) && typeof MediaRecorder !== "undefined";
   $("tab-record").hidden = !canRecord;
   $("sources").hidden = typeof navigator.mediaDevices?.getDisplayMedia !== "function";

@@ -13,6 +13,7 @@
     "dev:intake": "cd apps/intake && npm run dev",
     "test:intake": "cd apps/intake && node --test \"test/*.test.mjs\"",
     "build:mcp": "cd apps/mcp && npm install --no-audit --no-fund && npm run build",
-    "test:mcp": "cd apps/mcp && npm test"
+    "test:mcp": "cd apps/mcp && npm test",
+    "test:shared": "pnpm --filter @note-taker/shared test"
   }
 }

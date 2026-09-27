@@ -1,5 +1,6 @@
 /** Shared shapes for /api/v1 so the MCP server and the web speak the same language. */
 import type { RecordingDetail, RecordingSummary, TranscriptSegment } from "@note-taker/shared";
+import { computeSpeakerStats } from "@note-taker/shared";
 import type { AuthedToken } from "@/lib/auth";
 import { hasScope } from "@/lib/auth";
 import { speakerLabel } from "@/lib/format";
@@ -47,29 +48,16 @@ export function publicSegments(rec: RecordingDetail, withWords: boolean) {
   }));
 }
 
-/** Speaking time and turns per speaker. */
+/** Speaking time and turns per speaker, rounded for the API. */
 export function speakerStats(rec: RecordingDetail) {
-  const per = new Map<string, { seconds: number; turns: number; words: number }>();
-  let previous: string | null = null;
-  for (const s of rec.segments) {
-    const cur = per.get(s.speaker) ?? { seconds: 0, turns: 0, words: 0 };
-    cur.seconds += Math.max(0, s.end - s.start);
-    cur.words += s.text.split(/\s+/).filter(Boolean).length;
-    if (previous !== s.speaker) cur.turns += 1;
-    per.set(s.speaker, cur);
-    previous = s.speaker;
-  }
-  const total = [...per.values()].reduce((a, v) => a + v.seconds, 0) || 1;
-  return rec.speakers
-    .filter((id) => per.has(id))
-    .map((id) => ({
-      speaker: id,
-      name: speakerLabel(id, rec.speakers, rec.speakerNames, messages.en),
-      seconds: Math.round(per.get(id)!.seconds * 10) / 10,
-      share: Math.round((per.get(id)!.seconds / total) * 1000) / 1000,
-      turns: per.get(id)!.turns,
-      words: per.get(id)!.words,
-    }));
+  return computeSpeakerStats(rec.segments, rec.speakers).rows.map((r) => ({
+    speaker: r.speaker,
+    name: speakerLabel(r.speaker, rec.speakers, rec.speakerNames, messages.en),
+    seconds: Math.round(r.seconds * 10) / 10,
+    share: Math.round(r.share * 1000) / 1000,
+    turns: r.turns,
+    words: r.words,
+  }));
 }
 
 /** A submit-only token may see just what it created; a tag filter narrows a read token further. */

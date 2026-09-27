@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ExportFormat, RecordingDetail, SegmentEdit, TranscriptMutationResult, TranscriptSegment } from "@note-taker/shared";
+import { computeSpeakerStats } from "@note-taker/shared";
 import { api } from "@/lib/api-client";
 import { Markdown } from "./Markdown";
 import { useToast } from "./Toast";
@@ -143,22 +144,7 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
 
   // -------------------------------------------------------------- transcript
   const turns = useMemo(() => groupTurns(rec.segments), [rec.segments]);
-  const stats = useMemo(() => {
-    const per = new Map<string, { seconds: number; turns: number; words: number }>();
-    let longest = 0;
-    for (const t of turns) {
-      const cur = per.get(t.speaker) ?? { seconds: 0, turns: 0, words: 0 };
-      const secs = t.segments.reduce((a, sg) => a + Math.max(0, sg.end - sg.start), 0);
-      cur.seconds += secs;
-      cur.turns += 1;
-      cur.words += t.segments.reduce((a, sg) => a + sg.text.split(/\s+/).filter(Boolean).length, 0);
-      per.set(t.speaker, cur);
-      longest = Math.max(longest, secs);
-    }
-    const total = [...per.values()].reduce((a, v) => a + v.seconds, 0) || 1;
-    const rows = rec.speakers.filter((id) => per.has(id)).map((id) => ({ speaker: id, ...per.get(id)!, share: per.get(id)!.seconds / total }));
-    return { rows, totalTurns: Math.max(0, turns.length - 1), longest };
-  }, [turns, rec.speakers]);
+  const stats = useMemo(() => computeSpeakerStats(rec.segments, rec.speakers), [rec.segments, rec.speakers]);
   const activeIndex = useMemo(() => {
     const segs = rec.segments;
     if (segs.length === 0) return -1;
@@ -1233,7 +1219,7 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
                     );
                   })}
                   <p className="text-xs text-zinc-500">
-                    {fmt(m.stats.totalTurns, { n: stats.totalTurns })} · {fmt(m.stats.longest, { d: formatTime(stats.longest) })}
+                    {fmt(m.stats.totalTurns, { n: stats.speakerChanges })} · {fmt(m.stats.longest, { d: formatTime(stats.longestTurnSeconds) })}
                   </p>
                 </div>
               </div>

@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 
 const num = (v, d) => {
@@ -32,5 +33,8 @@ export function loadConfig(env = process.env) {
   };
 }
 
-export const SUPPORTED_MEDIA = /\.(mp3|mpga|m4a|m4b|wav|aac|ogg|oga|opus|flac|wma|aiff?|mka|webm|mp4|m4v|mov|mkv|avi|mpe?g|ts|3gp|amr)$/i;
+/** Copy of packages/shared/media-extensions.json (kept here so the intake deploys on its own; a test checks they match). */
+export const MEDIA_EXTENSIONS = JSON.parse(fs.readFileSync(new URL("./media-extensions.json", import.meta.url), "utf8"));
+export const SUPPORTED_MEDIA = new RegExp(`\.(${MEDIA_EXTENSIONS.join("|")})$`, "i");
+export const MEDIA_ACCEPT = [...MEDIA_EXTENSIONS.map((e) => `.${e}`), "audio/*", "video/*"].join(",");
 export const LANGUAGES = ["cs", "sk", "en", "de", "pl", "fr", "es", "it", "uk", "ru", "auto"];

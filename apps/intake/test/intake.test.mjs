@@ -77,7 +77,8 @@ describe("public upload API", () => {
   test("config reveals only limits and nothing about stored items", async () => {
     const { status, body } = await json(await fetch(`${s.base}/api/config`));
     assert.equal(status, 200);
-    assert.deepEqual(Object.keys(body).sort(), ["chunkBytes", "codeRequired", "defaultLanguage", "languages", "maxBytes", "title"]);
+    assert.deepEqual(Object.keys(body).sort(), ["accept", "chunkBytes", "codeRequired", "defaultLanguage", "languages", "maxBytes", "title"]);
+    assert.match(body.accept, /\.mka,/);
     assert.equal(body.codeRequired, false);
   });
 
@@ -264,4 +265,10 @@ describe("limits and housekeeping", () => {
     assert.equal(rl.take("a", 20), false);
     assert.equal(rl.take("a", 1500), true);
   });
+});
+
+test("the accepted formats match the canonical list in packages/shared", () => {
+  const here = JSON.parse(fs.readFileSync(new URL("../src/media-extensions.json", import.meta.url), "utf8"));
+  const canonical = JSON.parse(fs.readFileSync(new URL("../../../packages/shared/media-extensions.json", import.meta.url), "utf8"));
+  assert.deepEqual(here, canonical, "Copy packages/shared/media-extensions.json to apps/intake/src/media-extensions.json");
 });

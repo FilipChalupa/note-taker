@@ -1,3 +1,6 @@
+export * from "./speaker-stats";
+export * from "./media";
+
 /**
  * Shared API contracts between `apps/worker` (Python/FastAPI) and `apps/web` (Next.js).
  * Keep in sync with `apps/worker/worker/models.py`.
@@ -261,15 +264,6 @@ export interface RecordingPage {
 
 export type BulkAction = "delete" | "addTag" | "removeTag" | "archive" | "unarchive" | "favorite" | "unfavorite";
 
-export interface SpeakerStat {
-  speaker: string;
-  /** seconds of speech */
-  seconds: number;
-  /** 0..1 share of all speech */
-  share: number;
-  turns: number;
-  words: number;
-}
 
 /** GET /metrics on the worker. */
 export interface WorkerMetrics {
