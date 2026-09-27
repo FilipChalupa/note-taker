@@ -31,7 +31,8 @@ A token can also be limited to a single tag, so an agent sees only recordings ma
 
 ## Run
 
-Create a token in Note Taker under Settings, Agent access. Then:
+Create a token in Note Taker under Settings, Agent access. Token management is unlocked with the web app's
+`ADMIN_PASSWORD`. Then:
 
 ```bash
 claude mcp add note-taker \

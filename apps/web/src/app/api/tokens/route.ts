@@ -1,16 +1,21 @@
 import { NextResponse } from "next/server";
 import type { ApiTokenScope } from "@note-taker/shared";
 import { SCOPES, createApiToken, listApiTokens } from "@/lib/auth";
+import { requireAdmin } from "@/lib/admin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** Token management for the browser UI (LAN only, like the rest of /api/*). */
-export async function GET() {
+/** Token management; requires the admin session (ADMIN_PASSWORD). */
+export async function GET(req: Request) {
+  const denied = requireAdmin(req);
+  if (denied) return denied;
   return NextResponse.json(listApiTokens());
 }
 
 export async function POST(req: Request) {
+  const denied = requireAdmin(req);
+  if (denied) return denied;
   let body: { name?: unknown; scopes?: unknown; tagFilter?: unknown; expiresInDays?: unknown };
   try {
     body = await req.json();

@@ -9,7 +9,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { INTAKE_CODE, INTAKE_PORT, INTAKE_TOKEN, INTAKE_URL, WEB_PORT, WEB_URL, WORKER_PORT } from "./constants";
+import { ADMIN_PASSWORD, INTAKE_CODE, INTAKE_PORT, INTAKE_TOKEN, INTAKE_URL, WEB_PORT, WEB_URL, WORKER_PORT } from "./constants";
 
 const WEB_DIR = path.resolve(__dirname, "..", "..");
 
@@ -102,7 +102,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
         INTAKE_TOKEN,
         INTAKE_POLL_SECONDS: "1",
         WORKER_POLL_INTERVAL_MS: "500",
-        ADMIN_PASSWORD: "e2e-admin",
+        ADMIN_PASSWORD,
         NOTE_TAKER_E2E: "1",
       },
       WEB_DIR,

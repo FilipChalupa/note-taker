@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { ApiTokenCreated, ApiTokenInfo, ApiTokenScope, AuditEntry } from "@note-taker/shared";
 import { Dialog } from "./Dialog";
@@ -11,8 +12,66 @@ import { useI18n } from "@/lib/i18n/client";
 
 const SCOPES: ApiTokenScope[] = ["submit", "read", "write", "admin"];
 
-export function TokensSection({ initial, audit }: { initial: ApiTokenInfo[]; audit: AuditEntry[] }) {
+function AdminGate({ configured }: { configured: boolean }) {
+  const { m } = useI18n();
+  const router = useRouter();
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  if (!configured) return <p className="text-sm text-amber-700 dark:text-amber-300">{m.tokens.notConfigured}</p>;
+  const unlock = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/session", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password }) });
+      if (res.status === 204) {
+        setPassword("");
+        router.refresh();
+      } else setError(res.status === 429 ? m.tokens.tooManyAttempts : m.tokens.wrongPassword);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <form onSubmit={unlock} className="flex flex-wrap items-center gap-2" data-testid="admin-unlock">
+      <input className="input w-60" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder={m.tokens.password} aria-label={m.tokens.password} />
+      <button className="btn btn-primary py-1.5 text-sm" type="submit" disabled={busy || !password}>
+        🔒 {m.tokens.unlock}
+      </button>
+      <span className="w-full text-xs text-zinc-500">{m.tokens.lockedHelp}</span>
+      {error && <span className="w-full text-sm text-red-600" role="alert">{error}</span>}
+    </form>
+  );
+}
+
+export function TokensSection({ initial, audit, admin }: { initial: ApiTokenInfo[]; audit: AuditEntry[]; admin: { configured: boolean; unlocked: boolean } }) {
+  if (!admin.unlocked) {
+    return (
+      <LockedTokens configured={admin.configured} />
+    );
+  }
+  return <UnlockedTokens initial={initial} audit={audit} />;
+}
+
+function LockedTokens({ configured }: { configured: boolean }) {
+  const { m } = useI18n();
+  return (
+    <section className="card p-5" data-testid="tokens">
+      <h2 className="font-semibold">{m.tokens.title}</h2>
+      <p className="mb-3 mt-1 text-sm text-zinc-500">{m.tokens.help}</p>
+      <AdminGate configured={configured} />
+    </section>
+  );
+}
+
+function UnlockedTokens({ initial, audit }: { initial: ApiTokenInfo[]; audit: AuditEntry[] }) {
   const { locale, m, tz } = useI18n();
+  const router = useRouter();
+  const lock = async () => {
+    await fetch("/api/admin/session", { method: "DELETE" });
+    router.refresh();
+  };
   const toast = useToast();
   const [tokens, setTokens] = useState(initial);
   const [dialog, setDialog] = useState<null | "create" | { revoke: ApiTokenInfo }>(null);
@@ -74,7 +133,12 @@ export function TokensSection({ initial, audit }: { initial: ApiTokenInfo[]; aud
 
   return (
     <section className="card p-5" data-testid="tokens">
-      <h2 className="font-semibold">{m.tokens.title}</h2>
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="font-semibold">{m.tokens.title}</h2>
+        <button className="btn px-2 py-1 text-xs" onClick={lock} data-testid="admin-lock">
+          🔓 {m.tokens.lock}
+        </button>
+      </div>
       <p className="mb-3 mt-1 text-sm text-zinc-500">{m.tokens.help}</p>
 
       {tokens.length === 0 ? (

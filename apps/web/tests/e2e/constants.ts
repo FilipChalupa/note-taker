@@ -6,3 +6,4 @@ export const WEB_URL = `http://127.0.0.1:${WEB_PORT}`;
 export const INTAKE_URL = `http://127.0.0.1:${INTAKE_PORT}`;
 export const INTAKE_CODE = "e2e-code";
 export const INTAKE_TOKEN = "e2e-collect-token";
+export const ADMIN_PASSWORD = "e2e-admin";

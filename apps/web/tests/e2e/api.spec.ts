@@ -2,10 +2,16 @@ import { expect, test } from "@playwright/test";
 import fs from "node:fs";
 import type { APIRequestContext } from "@playwright/test";
 import { isolate, toneFile, waitForStatus } from "./helpers";
+import { ADMIN_PASSWORD } from "./constants";
 
 isolate();
 
+async function unlock(request: APIRequestContext) {
+  expect((await request.post("/api/admin/session", { data: { password: ADMIN_PASSWORD } })).status()).toBe(204);
+}
+
 async function createToken(request: APIRequestContext, name: string, scopes: string[], extra: Record<string, unknown> = {}) {
+  await unlock(request);
   const res = await request.post("/api/tokens", { data: { name, scopes, ...extra } });
   expect(res.status()).toBe(201);
   return (await res.json()) as { token: { id: string; prefix: string }; secret: string };
@@ -125,6 +131,9 @@ test("the audit log records agent calls and Settings manages tokens", async ({ p
 
   await page.goto("/settings");
   const box = page.getByTestId("tokens");
+  // the browser has its own cookies: unlock through the UI
+  await box.getByLabel("Admin password").fill(ADMIN_PASSWORD);
+  await box.getByRole("button", { name: /Unlock/ }).click();
   await expect(box).toContainText("e2e audited");
   await box.getByRole("button", { name: "+ Create token" }).click();
   await page.getByRole("dialog").getByPlaceholder("e.g. Claude on the laptop").fill("from the UI");
@@ -132,4 +141,42 @@ test("the audit log records agent calls and Settings manages tokens", async ({ p
   await expect(page.getByTestId("token-secret")).toContainText(/^nt_/);
   await page.getByRole("dialog").getByRole("button", { name: "Close" }).click();
   await expect(page.getByTestId("token-list")).toContainText("from the UI");
+});
+
+test("token management needs the admin password; agents' tokens keep working while locked", async ({ request, page }) => {
+  // locked by default
+  expect((await request.get("/api/tokens")).status()).toBe(401);
+  expect((await request.post("/api/tokens", { data: { name: "x", scopes: ["admin"] } })).status()).toBe(401);
+  expect((await request.get("/api/audit")).status()).toBe(401);
+  expect((await request.get("/api/admin/session")).status()).toBe(200);
+  expect(await (await request.get("/api/admin/session")).json()).toEqual({ configured: true, unlocked: false });
+
+  // wrong password, then the right one
+  expect((await request.post("/api/admin/session", { data: { password: "nope" } })).status()).toBe(401);
+  const { secret } = await createToken(request, "e2e survives lock", ["read"]);
+  expect(await (await request.get("/api/admin/session")).json()).toEqual({ configured: true, unlocked: true });
+  const setCookie = (await request.post("/api/admin/session", { data: { password: ADMIN_PASSWORD } })).headers()["set-cookie"];
+  expect(setCookie).toMatch(/HttpOnly/i);
+  expect(setCookie).toMatch(/SameSite=Strict/i);
+
+  // locking ends the session, the token keeps working for the API
+  await request.delete("/api/admin/session");
+  expect((await request.get("/api/tokens")).status()).toBe(401);
+  expect((await request.get("/api/v1/me", { headers: auth(secret) })).status()).toBe(200);
+
+  // a forged cookie is refused
+  expect((await request.get("/api/tokens", { headers: { Cookie: "nt_admin=9999999999.forged" } })).status()).toBe(401);
+
+  // the Settings page shows the unlock form, not the tokens
+  await page.goto("/settings");
+  await expect(page.getByTestId("admin-unlock")).toBeVisible();
+  await expect(page.getByTestId("token-list")).toHaveCount(0);
+  await page.getByLabel("Admin password").fill("wrong");
+  await page.getByRole("button", { name: /Unlock/ }).click();
+  await expect(page.getByTestId("admin-unlock").getByRole("alert")).toContainText("not correct");
+
+  // repeated wrong passwords are throttled
+  let last = 0;
+  for (let i = 0; i < 12; i++) last = (await request.post("/api/admin/session", { data: { password: "brute" } })).status();
+  expect(last).toBe(429);
 });

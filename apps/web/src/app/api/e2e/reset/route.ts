@@ -28,5 +28,6 @@ export async function POST() {
   // in-memory state that would otherwise leak between spec files
   const g = globalThis as Record<string, unknown>;
   (g.__noteTakerApiLimits as Map<string, unknown> | undefined)?.clear();
+  (g.__noteTakerAdminFailures as Map<string, unknown> | undefined)?.clear();
   return new NextResponse(null, { status: 204 });
 }

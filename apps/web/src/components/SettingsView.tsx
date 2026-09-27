@@ -122,6 +122,7 @@ export function SettingsView({
   intake,
   tokens,
   audit,
+  admin,
 }: {
   initial: AppSettings;
   storage: StorageInfo;
@@ -130,6 +131,7 @@ export function SettingsView({
   intake: IntakeStatus;
   tokens: ApiTokenInfo[];
   audit: AuditEntry[];
+  admin: { configured: boolean; unlocked: boolean };
 }) {
   const { m } = useI18n();
   const toast = useToast();
@@ -263,7 +265,7 @@ export function SettingsView({
         <p>{voiceDialog?.kind === "delete" ? fmt(m.voices.confirmDelete, { name: voiceDialog.voice.name }) : ""}</p>
       </Dialog>
 
-      <TokensSection initial={tokens} audit={audit} />
+      <TokensSection initial={tokens} audit={audit} admin={admin} />
 
       <IntakeSection initial={intake} />
 

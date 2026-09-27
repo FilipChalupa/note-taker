@@ -46,6 +46,7 @@ The DB schema is created automatically on startup (`src/lib/db/index.ts`, `CREAT
 | `WORKER_POLL_INTERVAL_MS` | `3000` | task status polling interval |
 | `DEFAULT_LANGUAGE` | `cs` | preselected language in the upload form |
 | `MAX_UPLOAD_MB` | `2048` | upload size limit |
+| `ADMIN_PASSWORD` | – | unlocks token management and the audit log in Settings |
 | `IMPORT_DIR` | – | watch folder; media files copied there are imported automatically (Docker: `./import`) |
 | `IMPORT_LANGUAGE` | `DEFAULT_LANGUAGE` | language for imported files |
 | `INTAKE_URL` | – | public intake page to pull uploads from (optional) |
@@ -87,8 +88,9 @@ trimmed to Whisper's prompt budget (~900 characters) and sent as `initial_prompt
 | `POST` | `/api/settings/glossary` | `{ terms }` – append terms to the glossary (used by the correction suggestions) |
 | `GET` | `/api/tags` | tags with usage counts |
 | `GET` / `POST` | `/api/intake` | intake pull status / collect now |
-| `GET` / `POST` | `/api/tokens` | API tokens for agents; `POST/DELETE /api/tokens/:id` revokes or removes |
-| `GET` | `/api/audit` | recent authenticated API calls |
+| `GET` / `POST` / `DELETE` | `/api/admin/session` | admin session status / unlock with `{ password }` / lock |
+| `GET` / `POST` | `/api/tokens` | API tokens for agents (admin session); `POST/DELETE /api/tokens/:id` revokes or removes |
+| `GET` | `/api/audit` | recent authenticated API calls (admin session) |
 | `GET` / `PATCH` / `DELETE` | `/api/voices[/:id]` | known voices learned from named speakers |
 | `POST` | `/api/recordings/:id/speakers/apply-suggestions` | name speakers after suggested known voices |
 | `GET` / `PUT` | `/api/settings` | global glossary |
@@ -97,7 +99,9 @@ trimmed to Whisper's prompt budget (~900 characters) and sent as `initial_prompt
 
 ## API for agents (`/api/v1`)
 
-Authenticated with `Authorization: Bearer nt_...` tokens created in Settings. Scopes are `submit`, `read`, `write`
+Authenticated with `Authorization: Bearer nt_...` tokens created in Settings. Managing tokens and reading the audit
+log requires `ADMIN_PASSWORD`: Settings asks for it and keeps an HttpOnly session for 12 hours. Without the variable
+token management is disabled; existing tokens keep working. Scopes are `submit`, `read`, `write`
 and `admin`; `admin` implies the rest. A token may be limited to one tag. Calls are rate limited per token and
 recorded in the audit log. This is what [`apps/mcp`](../mcp) talks to.
 
