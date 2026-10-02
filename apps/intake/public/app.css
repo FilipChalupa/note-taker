@@ -71,6 +71,8 @@ h1 { font-size: 1.5rem; margin: 0 0 .25rem; }
 .timer { font: 600 2.6rem/1 ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; }
 .meter { width: 14rem; height: 6px; background: var(--track); border-radius: 3px; overflow: hidden; }
 .meter > div { height: 100%; width: 0; background: var(--ok); transition: width .15s; }
+.meter > div.clip { background: var(--danger); }
+.warning { color: #d97706; font-size: .9rem; margin: 0; max-width: 26rem; text-align: center; }
 .error { color: var(--danger); font-size: .9rem; margin: .5rem 0 0; }
 .queue { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: .5rem; }
 .queue li { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: .75rem .9rem; }

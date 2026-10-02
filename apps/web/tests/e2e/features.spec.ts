@@ -107,3 +107,26 @@ test("recorder: source options and crash recovery from IndexedDB", async ({ page
   await page.goto("/record");
   await expect(page.getByTestId("recovery")).toHaveCount(0);
 });
+
+test("recorder: a silent input is called out, and the source choice is remembered", async ({ page, context }) => {
+  await context.grantPermissions(["microphone"]);
+  // the fake microphone beeps; make the analyser hear nothing, as a muted or wrong microphone would
+  await page.addInitScript(() => {
+    AnalyserNode.prototype.getFloatTimeDomainData = function (array: Float32Array) {
+      array.fill(0);
+    };
+  });
+  await page.clock.install();
+  await page.goto("/record");
+  await page.getByRole("button", { name: /Start recording/ }).click();
+  await expect(page.getByText("Recording", { exact: true })).toBeVisible();
+  await expect(page.getByTestId("silence-warning")).toHaveCount(0);
+  await page.clock.runFor(11_000);
+  await expect(page.getByTestId("silence-warning")).toContainText(/No sound for 1\d s/);
+  await page.getByRole("button", { name: "Discard" }).click();
+  await expect(page.getByTestId("silence-warning")).toHaveCount(0);
+
+  await page.getByLabel(/Microphone \+ tab/).check();
+  await page.reload();
+  await expect(page.getByLabel(/Microphone \+ tab/)).toBeChecked();
+});

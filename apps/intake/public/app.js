@@ -38,6 +38,9 @@ const T = {
     paused: "Pozastaveno",
     micDenied: "Přístup k mikrofonu byl odepřen.",
     noDisplayAudio: "Sdílení neobsahuje zvuk. Zaškrtněte „Sdílet zvuk“.",
+    silentMic: "Už {n} s není slyšet žádný zvuk. Zkontrolujte, že je vybraný správný mikrofon a není ztlumený.",
+    silentDisplay: "Ze sdílené karty už {n} s nejde žádný zvuk. Zkontrolujte, že je zaškrtnuté „Sdílet zvuk“.",
+    clipping: "Vstup je příliš hlasitý a zkresluje. Posuňte se dál od mikrofonu.",
     unsupported: "Tento prohlížeč nahrávání nepodporuje.",
     autosave: "Průběžně se ukládá v prohlížeči, zavření karty nahrávku neztratí.",
     recoveryTitle: "Nalezena neodeslaná nahrávka",
@@ -102,6 +105,9 @@ const T = {
     paused: "Paused",
     micDenied: "Microphone access was denied.",
     noDisplayAudio: "The shared source has no audio. Tick “Share audio”.",
+    silentMic: "No sound for {n} s. Check that the right microphone is selected and not muted.",
+    silentDisplay: "No sound from the shared tab for {n} s. Check that “Share audio” was ticked.",
+    clipping: "The input is too loud and distorts. Move away from the microphone.",
     unsupported: "This browser cannot record audio.",
     autosave: "Saved continuously in this browser; a closed tab does not lose the recording.",
     recoveryTitle: "Unsent recording found",
@@ -489,7 +495,12 @@ $("tab-upload").onclick = () => selectTab("upload");
 $("tab-record").onclick = () => selectTab("record");
 
 // -------------------------------------------------------------- recorder
-const rec = { phase: "idle", recorder: null, streams: [], ctx: null, analyser: null, chunks: [], seq: 0, sessionId: null, startedAt: 0, pausedAt: 0, pausedTotal: 0, timer: null, wake: null, error: null };
+const rec = { phase: "idle", recorder: null, streams: [], ctx: null, analyser: null, chunks: [], seq: 0, sessionId: null, startedAt: 0, pausedAt: 0, pausedTotal: 0, timer: null, wake: null, error: null, source: "mic", lastSound: 0, clips: [] };
+// After this long without any sound the page says so: a muted or wrong microphone is otherwise found out only
+// when the transcript comes back empty. (The web app has the same logic in packages/shared/src/input-monitor.ts.)
+const SILENCE_WARNING_SECONDS = 10;
+const SILENCE_RMS = 0.003; // -50 dBFS
+
 
 function renderRecorder() {
   const p = rec.phase;
@@ -507,15 +518,28 @@ function renderRecorder() {
   for (const r of document.querySelectorAll("input[name=source]")) r.disabled = p !== "idle";
   $("mic").disabled = p !== "idle";
 }
-document.querySelectorAll("input[name=source]").forEach((r) => (r.onchange = renderRecorder));
+document.querySelectorAll("input[name=source]").forEach(
+  (r) =>
+    (r.onchange = () => {
+      store.set("intake.source", r.value);
+      renderRecorder();
+    }),
+);
+{
+  // the source and the microphone picked last time
+  const saved = document.querySelector(`input[name=source][value="${store.get("intake.source") || "mic"}"]`);
+  if (saved && !saved.disabled) saved.checked = true;
+}
+$("mic").addEventListener("change", (e) => store.set("intake.mic", e.target.value));
 
 async function refreshMics() {
   if (!navigator.mediaDevices?.enumerateDevices) return;
   const devices = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "audioinput");
   const sel = $("mic");
-  const current = sel.value;
+  const current = sel.value || store.get("intake.mic") || "";
   sel.replaceChildren(new Option(t("micDefault"), ""), ...devices.filter((d) => d.deviceId && d.deviceId !== "default").map((d) => new Option(d.label || d.deviceId.slice(0, 8), d.deviceId)));
   sel.value = current;
+  if (sel.value !== current) sel.value = ""; // the remembered microphone is not plugged in
 }
 
 const pickMime = () => ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"].find((m) => MediaRecorder.isTypeSupported(m)) || "";
@@ -570,6 +594,9 @@ async function startRecording() {
     rec.sessionId = crypto.randomUUID();
     rec.startedAt = Date.now();
     rec.pausedTotal = 0;
+    rec.source = source;
+    rec.lastSound = Date.now();
+    rec.clips = [];
     const session = { id: rec.sessionId, startedAt: new Date().toISOString(), title: $("meta-title").value.trim(), mime: mr.mimeType || mime || "audio/webm" };
     if (recorderStore.available()) await recorderStore.createSession(session).catch(() => {});
     mr.ondataavailable = (e) => {
@@ -596,13 +623,30 @@ function tick() {
   const elapsed = (Date.now() - rec.startedAt - rec.pausedTotal - (rec.phase === "paused" ? Date.now() - rec.pausedAt : 0)) / 1000;
   const h = Math.floor(elapsed / 3600);
   $("rec-timer").textContent = `${h}:${fmtDuration(elapsed % 3600).padStart(5, "0")}`;
+  let warning = "";
   if (rec.analyser && rec.phase === "recording") {
-    const buf = new Uint8Array(rec.analyser.fftSize);
-    rec.analyser.getByteTimeDomainData(buf);
+    const buf = new Float32Array(rec.analyser.fftSize);
+    rec.analyser.getFloatTimeDomainData(buf);
     let sum = 0;
-    for (const v of buf) sum += (v - 128) ** 2;
-    $("rec-level").style.width = `${Math.min(100, (Math.sqrt(sum / buf.length) / 40) * 100)}%`;
+    let peak = 0;
+    for (const v of buf) {
+      sum += v * v;
+      peak = Math.max(peak, Math.abs(v));
+    }
+    const rms = Math.sqrt(sum / buf.length);
+    const now = Date.now();
+    if (rms > SILENCE_RMS) rec.lastSound = now;
+    if (peak >= 0.99) rec.clips.push(now);
+    rec.clips = rec.clips.filter((c) => now - c <= 5000);
+    const clipping = rec.clips.length >= 3;
+    const silent = Math.floor((now - rec.lastSound) / 1000);
+    $("rec-level").style.width = `${Math.min(100, rms * 320)}%`;
+    $("rec-level").classList.toggle("clip", clipping);
+    if (silent >= SILENCE_WARNING_SECONDS) warning = t(rec.source === "display" ? "silentDisplay" : "silentMic", { n: silent });
+    else if (clipping) warning = t("clipping");
   }
+  $("rec-warning").hidden = !warning;
+  $("rec-warning").textContent = warning;
 }
 
 function finishRecorder() {
@@ -629,6 +673,8 @@ async function stopRecording() {
   rec.phase = "idle";
   rec.recorder = null;
   $("rec-level").style.width = "0";
+  $("rec-level").classList.remove("clip");
+  $("rec-warning").hidden = true;
   renderRecorder();
   if (blob.size) enqueue(blob, recordingFilename(blob.type, started), { sessionId, title: $("meta-title").value.trim() || t("recordingName", { when: fmtWhen(started) }) });
 }
@@ -643,6 +689,7 @@ $("rec-pause").onclick = () => {
 $("rec-resume").onclick = () => {
   rec.recorder?.resume();
   rec.pausedTotal += Date.now() - rec.pausedAt;
+  rec.lastSound = Date.now();
   rec.phase = "recording";
   renderRecorder();
 };

@@ -373,6 +373,9 @@ export const en: Messages = {
     recoveryText: "{when} · about {duration}. The browser was closed before it could be uploaded.",
     recoveryUpload: "Upload for processing",
     recoveryDiscard: "Discard",
+    silentMic: "No sound for {n} s. Check that the right microphone is selected and not muted.",
+    silentDisplay: "No sound from the shared tab or screen for {n} s. Check that “Share audio” was ticked and the meeting is not muted.",
+    clipping: "The input is too loud and distorts. Move away from the microphone or lower its level in the system settings.",
     autosave: "Saved continuously in the browser; a crash or closed tab does not lose the recording.",
   },
   queue: {

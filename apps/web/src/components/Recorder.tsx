@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { RecordingDetail } from "@note-taker/shared";
+import { createInputMonitor, type RecordingDetail } from "@note-taker/shared";
 import { formatDate, formatDuration, formatTime } from "@/lib/format";
 import { fmt } from "@/lib/i18n";
 import { useI18n } from "@/lib/i18n/client";
@@ -11,6 +11,27 @@ import { requestWorkerRefresh } from "./WorkerStatus";
 
 type Phase = "idle" | "recording" | "paused" | "uploading";
 type Source = "mic" | "display" | "both";
+
+/** After this long without any sound the recorder says so: a muted or wrong microphone is otherwise found out
+ *  only when the transcript comes back empty. */
+const SILENCE_WARNING_SECONDS = 10;
+const SOURCE_KEY = "recorder.source";
+const DEVICE_KEY = "recorder.deviceId";
+
+function readPref(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+function writePref(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* private mode */
+  }
+}
 
 function pickMime(): string {
   const candidates = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"];
@@ -34,6 +55,9 @@ export function Recorder() {
   const [phase, setPhase] = useState<Phase>("idle");
   const [elapsed, setElapsed] = useState(0);
   const [level, setLevel] = useState(0);
+  const [silentSeconds, setSilentSeconds] = useState(0);
+  const [clipping, setClipping] = useState(false);
+  const monitor = useRef(createInputMonitor());
   const [title, setTitle] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<number | null>(null);
@@ -52,13 +76,22 @@ export function Recorder() {
     if (typeof window === "undefined" || !navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") setSupported(false);
     setDisplaySupported(typeof navigator !== "undefined" && typeof navigator.mediaDevices?.getDisplayMedia === "function");
     if (recordingStore.available()) void recordingStore.listSessions().then((s) => setRecoveries(s.filter((x) => x.chunks > 0))).catch(() => {});
+    // the source and the microphone picked last time (read after mount: the server render has no localStorage)
+    const savedSource = readPref(SOURCE_KEY);
+    if (savedSource === "mic" || savedSource === "both" || (savedSource === "display" && typeof navigator.mediaDevices?.getDisplayMedia === "function")) setSource(savedSource);
+    const savedDevice = readPref(DEVICE_KEY);
+    if (savedDevice) setDeviceId(savedDevice);
   }, []);
 
   // Enumerate mics (labels appear after the first permission grant)
   const refreshDevices = useCallback(async () => {
     try {
       const all = await navigator.mediaDevices.enumerateDevices();
-      setDevices(all.filter((d) => d.kind === "audioinput"));
+      const inputs = all.filter((d) => d.kind === "audioinput");
+      setDevices(inputs);
+      // a remembered microphone that is no longer plugged in falls back to the default (ids are only listed
+      // once permission was granted, so an empty id means "not known yet", not "gone")
+      if (inputs.some((d) => d.deviceId)) setDeviceId((id) => (id && !inputs.some((d) => d.deviceId === id) ? "" : id));
     } catch {
       /* ignore */
     }
@@ -74,11 +107,12 @@ export function Recorder() {
       setElapsed((Date.now() - startedAt.current - pausedTotal.current) / 1000);
       const a = analyser.current;
       if (a) {
-        const buf = new Uint8Array(a.fftSize);
-        a.getByteTimeDomainData(buf);
-        let sum = 0;
-        for (const v of buf) sum += (v - 128) ** 2;
-        setLevel(Math.min(1, Math.sqrt(sum / buf.length) / 40));
+        const buf = new Float32Array(a.fftSize);
+        a.getFloatTimeDomainData(buf);
+        const health = monitor.current.push(buf);
+        setLevel(health.level);
+        setSilentSeconds(health.silentSeconds);
+        setClipping(health.clipping);
       }
     }, 200);
     return () => clearInterval(t);
@@ -176,6 +210,9 @@ export function Recorder() {
       startedAt.current = Date.now();
       pausedTotal.current = 0;
       setElapsed(0);
+      monitor.current.reset();
+      setSilentSeconds(0);
+      setClipping(false);
       setPhase("recording");
       try {
         const nav = navigator as Navigator & { wakeLock?: { request: (t: "screen") => Promise<{ release: () => Promise<void> }> } };
@@ -198,6 +235,8 @@ export function Recorder() {
   const resume = () => {
     recorder.current?.resume();
     pausedTotal.current += Date.now() - pausedAt.current;
+    monitor.current.reset();
+    setSilentSeconds(0);
     setPhase("recording");
   };
 
@@ -307,7 +346,17 @@ export function Recorder() {
           <div className="space-y-1 text-sm">
             {(["mic", "display", "both"] as Source[]).map((opt) => (
               <label key={opt} className="flex items-center gap-2">
-                <input type="radio" name="source" value={opt} checked={source === opt} onChange={() => setSource(opt)} disabled={active || phase === "uploading"} />
+                <input
+                  type="radio"
+                  name="source"
+                  value={opt}
+                  checked={source === opt}
+                  onChange={() => {
+                    setSource(opt);
+                    writePref(SOURCE_KEY, opt);
+                  }}
+                  disabled={active || phase === "uploading"}
+                />
                 {opt === "mic" ? m.record.sourceMic : opt === "display" ? m.record.sourceDisplay : m.record.sourceBoth}
               </label>
             ))}
@@ -318,7 +367,15 @@ export function Recorder() {
       {source !== "display" && (
       <div>
         <label className="mb-1 block text-sm font-medium">{m.record.mic}</label>
-        <select className="input" value={deviceId} onChange={(e) => setDeviceId(e.target.value)} disabled={active || phase === "uploading"}>
+        <select
+          className="input"
+          value={deviceId}
+          onChange={(e) => {
+            setDeviceId(e.target.value);
+            writePref(DEVICE_KEY, e.target.value);
+          }}
+          disabled={active || phase === "uploading"}
+        >
           <option value="">{devices.find((d) => d.deviceId === "default")?.label || "Default"}</option>
           {devices
             .filter((d) => d.deviceId && d.deviceId !== "default")
@@ -338,8 +395,18 @@ export function Recorder() {
           {phase === "recording" ? m.record.recording : phase === "paused" ? m.record.paused : phase === "uploading" ? m.record.uploading : " "}
         </div>
         <div className="h-1.5 w-64 overflow-hidden rounded bg-zinc-200 dark:bg-zinc-700">
-          <div className="h-full bg-emerald-500 transition-[width] duration-150" style={{ width: `${Math.round(level * 100)}%` }} />
+          <div className={`h-full transition-[width] duration-150 ${clipping ? "bg-red-500" : "bg-emerald-500"}`} style={{ width: `${Math.round(level * 100)}%` }} />
         </div>
+        {phase === "recording" && silentSeconds >= SILENCE_WARNING_SECONDS && (
+          <p className="max-w-md rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-center text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200" role="alert" data-testid="silence-warning">
+            {fmt(source === "display" ? m.record.silentDisplay : m.record.silentMic, { n: silentSeconds })}
+          </p>
+        )}
+        {phase === "recording" && clipping && (
+          <p className="max-w-md rounded-md border border-red-300 bg-red-50 px-3 py-2 text-center text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200" role="alert" data-testid="clipping-warning">
+            {m.record.clipping}
+          </p>
+        )}
         {phase === "uploading" && progress != null && (
           <div className="h-2 w-64 overflow-hidden rounded bg-zinc-200 dark:bg-zinc-700">
             <div className="h-full bg-blue-500 transition-all" style={{ width: `${progress}%` }} />

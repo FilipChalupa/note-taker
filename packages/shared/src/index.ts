@@ -1,5 +1,6 @@
 export * from "./speaker-stats";
 export * from "./media";
+export * from "./input-monitor";
 
 /**
  * Shared API contracts between `apps/worker` (Python/FastAPI) and `apps/web` (Next.js).

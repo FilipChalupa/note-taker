@@ -371,6 +371,9 @@ export const cs = {
     recoveryText: "{when} · přibližně {duration}. Prohlížeč byl zavřen dřív, než se stihla odeslat.",
     recoveryUpload: "Odeslat ke zpracování",
     recoveryDiscard: "Zahodit",
+    silentMic: "Už {n} s není slyšet žádný zvuk. Zkontrolujte, že je vybraný správný mikrofon a není ztlumený.",
+    silentDisplay: "Ze sdílené karty nebo obrazovky už {n} s nejde žádný zvuk. Zkontrolujte, že je zaškrtnuté „Sdílet zvuk“ a schůzka není ztlumená.",
+    clipping: "Vstup je příliš hlasitý a zkresluje. Posuňte se dál od mikrofonu nebo snižte jeho úroveň v nastavení systému.",
     autosave: "Průběžně se ukládá v prohlížeči, pád nebo zavření karty nahrávku neztratí.",
   },
   queue: {

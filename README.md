@@ -54,6 +54,8 @@ reachable again.
 - Speaker statistics (talk time, share, turns) and a glossary that learns from your corrections.
 - Known voices: naming a speaker once makes the app suggest the name in later recordings.
 - Record from the microphone, a browser tab / screen (online meetings) or both; in-progress recordings survive a crash.
+  The recorder says so when the input has been silent for ten seconds (a muted or wrong microphone, a tab shared
+  without audio) or when it clips, and remembers the source and the microphone picked last time.
 - Czech and English UI, phone-friendly layout, GPU utilization/VRAM/temperature in the header; processing statistics,
   disk usage and known voices in Settings. Dates follow the visitor's time zone.
 
