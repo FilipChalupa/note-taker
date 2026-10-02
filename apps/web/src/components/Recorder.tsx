@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createInputMonitor, type RecordingDetail } from "@note-taker/shared";
+import { assessMicTest, createInputMonitor, type LevelFrame, type MicTestResult, type RecordingDetail } from "@note-taker/shared";
 import { formatDate, formatDuration, formatTime } from "@/lib/format";
 import { fmt } from "@/lib/i18n";
 import { useI18n } from "@/lib/i18n/client";
@@ -15,6 +15,8 @@ type Source = "mic" | "display" | "both";
 /** After this long without any sound the recorder says so: a muted or wrong microphone is otherwise found out
  *  only when the transcript comes back empty. */
 const SILENCE_WARNING_SECONDS = 10;
+/** Long enough for a breath of room noise and a couple of sentences. */
+const MIC_TEST_SECONDS = 6;
 const SOURCE_KEY = "recorder.source";
 const DEVICE_KEY = "recorder.deviceId";
 
@@ -58,6 +60,14 @@ export function Recorder() {
   const [silentSeconds, setSilentSeconds] = useState(0);
   const [clipping, setClipping] = useState(false);
   const monitor = useRef(createInputMonitor());
+  const [micTest, setMicTest] = useState<{ left: number } | MicTestResult | null>(null);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
   const [title, setTitle] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<number | null>(null);
@@ -144,16 +154,71 @@ export function Recorder() {
 
   useEffect(() => cleanup, [cleanup]);
 
+  const micConstraints = (): MediaStreamConstraints => ({
+    audio: { deviceId: deviceId ? { exact: deviceId } : undefined, echoCancellation: source === "both", noiseSuppression: false, autoGainControl: true },
+  });
+
+  /** A few seconds of talking before the meeting: the same microphone and settings as the recording itself,
+   *  judged the way the worker later judges the upload. Nothing is stored. */
+  const runMicTest = async () => {
+    setError(null);
+    setMicTest({ left: MIC_TEST_SECONDS });
+    let mic: MediaStream | null = null;
+    let ctx: AudioContext | null = null;
+    try {
+      mic = await navigator.mediaDevices.getUserMedia(micConstraints());
+      void refreshDevices();
+      ctx = new AudioContext();
+      const an = ctx.createAnalyser();
+      an.fftSize = 2048;
+      ctx.createMediaStreamSource(mic).connect(an);
+      const buf = new Float32Array(an.fftSize);
+      const frames: LevelFrame[] = [];
+      const started = Date.now();
+      await new Promise<void>((resolve) => {
+        const timer = setInterval(() => {
+          an.getFloatTimeDomainData(buf);
+          let sum = 0;
+          let peak = 0;
+          for (let i = 0; i < buf.length; i++) {
+            sum += buf[i] * buf[i];
+            peak = Math.max(peak, Math.abs(buf[i]));
+          }
+          const rms = Math.sqrt(sum / buf.length);
+          frames.push({ rms, peak });
+          const left = MIC_TEST_SECONDS - (Date.now() - started) / 1000;
+          if (left <= 0 || !mounted.current) {
+            clearInterval(timer);
+            resolve();
+            return;
+          }
+          setLevel(Math.min(1, rms * 3.2));
+          setMicTest({ left: Math.ceil(left) });
+        }, 50);
+      });
+      // the first quarter of a second is the microphone opening, not the room
+      setMicTest(assessMicTest(frames.slice(5)));
+    } catch (err) {
+      const name = (err as Error).name;
+      setError(name === "NotAllowedError" ? m.record.micDenied : (err as Error).message);
+      setMicTest(null);
+    } finally {
+      mic?.getTracks().forEach((t) => t.stop());
+      void ctx?.close().catch(() => {});
+      setLevel(0);
+    }
+  };
+  const micTestRunning = micTest !== null && "left" in micTest;
+
   const start = async () => {
     setError(null);
     setNotice(null);
+    setMicTest(null);
     try {
       let mic: MediaStream | null = null;
       let display: MediaStream | null = null;
       if (source === "mic" || source === "both") {
-        mic = await navigator.mediaDevices.getUserMedia({
-          audio: { deviceId: deviceId ? { exact: deviceId } : undefined, echoCancellation: source === "both", noiseSuppression: false, autoGainControl: true },
-        });
+        mic = await navigator.mediaDevices.getUserMedia(micConstraints());
         void refreshDevices();
       }
       if (source === "display" || source === "both") {
@@ -355,7 +420,7 @@ export function Recorder() {
                     setSource(opt);
                     writePref(SOURCE_KEY, opt);
                   }}
-                  disabled={active || phase === "uploading"}
+                  disabled={active || phase === "uploading" || micTestRunning}
                 />
                 {opt === "mic" ? m.record.sourceMic : opt === "display" ? m.record.sourceDisplay : m.record.sourceBoth}
               </label>
@@ -374,7 +439,7 @@ export function Recorder() {
             setDeviceId(e.target.value);
             writePref(DEVICE_KEY, e.target.value);
           }}
-          disabled={active || phase === "uploading"}
+          disabled={active || phase === "uploading" || micTestRunning}
         >
           <option value="">{devices.find((d) => d.deviceId === "default")?.label || "Default"}</option>
           {devices
@@ -407,6 +472,7 @@ export function Recorder() {
             {m.record.clipping}
           </p>
         )}
+        {phase === "idle" && micTest && <MicTestNote test={micTest} />}
         {phase === "uploading" && progress != null && (
           <div className="h-2 w-64 overflow-hidden rounded bg-zinc-200 dark:bg-zinc-700">
             <div className="h-full bg-blue-500 transition-all" style={{ width: `${progress}%` }} />
@@ -419,8 +485,13 @@ export function Recorder() {
 
       <div className="flex flex-wrap justify-center gap-2">
         {phase === "idle" && (
-          <button className="btn btn-primary px-6 py-3 text-base" onClick={start}>
+          <button className="btn btn-primary px-6 py-3 text-base" onClick={start} disabled={micTestRunning}>
             {m.record.start}
+          </button>
+        )}
+        {phase === "idle" && source !== "display" && (
+          <button className="btn px-5 py-3" onClick={runMicTest} disabled={micTestRunning}>
+            {m.record.micTest}
           </button>
         )}
         {phase === "recording" && (
@@ -447,5 +518,37 @@ export function Recorder() {
       <p className="text-center text-xs text-zinc-500">{m.record.autosave}</p>
     </div>
     </div>
+  );
+}
+
+/** The running countdown or the verdict of the microphone test. */
+function MicTestNote({ test }: { test: { left: number } | MicTestResult }) {
+  const { m } = useI18n();
+  if ("left" in test) {
+    return (
+      <p className="max-w-md px-3 text-center text-sm text-zinc-600 dark:text-zinc-300" role="status" data-testid="mic-test">
+        {fmt(m.record.micTestRunning, { n: test.left })}
+      </p>
+    );
+  }
+  const params = { speech: Math.round(test.speechDb ?? 0), snr: Math.round(test.snrDb ?? 0) };
+  const ok = test.verdict === "ok";
+  const text =
+    test.verdict === "ok"
+      ? fmt(m.record.micTestOk, params)
+      : test.verdict === "silent"
+        ? m.record.micTestSilent
+        : test.verdict === "noisy"
+          ? fmt(m.record.micTestNoisy, params)
+          : test.verdict === "quiet"
+            ? fmt(m.record.micTestQuiet, params)
+            : m.record.clipping;
+  const tone = ok
+    ? "border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
+    : "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200";
+  return (
+    <p className={`max-w-md rounded-md border px-3 py-2 text-center text-sm ${tone}`} role="status" data-testid="mic-test" data-verdict={test.verdict}>
+      {text}
+    </p>
   );
 }

@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS recordings (
   segments TEXT NOT NULL DEFAULT '[]',
   speaker_embeddings TEXT,
   speaker_suggestions TEXT NOT NULL DEFAULT '{}',
+  audio_quality TEXT,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -135,6 +136,7 @@ function open(): Db {
   addColumn("speaker_embeddings", "speaker_embeddings TEXT");
   addColumn("speaker_suggestions", "speaker_suggestions TEXT NOT NULL DEFAULT '{}'");
   addColumn("owner_token_id", "owner_token_id TEXT");
+  addColumn("audio_quality", "audio_quality TEXT");
   const hadFts = sqlite.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='recordings_fts'").get();
   sqlite.exec(FTS_DDL);
   if (!hadFts && (sqlite.prepare("SELECT COUNT(*) AS n FROM recordings_fts").get() as { n: number }).n === 0) {

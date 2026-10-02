@@ -18,6 +18,7 @@ import { ConfirmDialog, RediarizeDialog, ShortcutsDialog, type ConfirmRequest, t
 import { useTranscriptSearch } from "./recording/useTranscriptSearch";
 import { useElementHeight, useTranscriptWindow } from "./recording/useTranscriptWindow";
 import { errorLabel, groupTurns, phaseLabel, speakerLabel, warningLabel } from "@/lib/format";
+import { AudioQualityWarning } from "./recording/AudioQualityNote";
 import { fmt } from "@/lib/i18n";
 import { useI18n } from "@/lib/i18n/client";
 
@@ -445,6 +446,8 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
           ⚠ {warningLabel(rec.warning, m)}
         </div>
       )}
+
+      {rec.status === "COMPLETED" && rec.audioQuality && <AudioQualityWarning quality={rec.audioQuality} />}
 
       {rec.status === "FAILED" && (
         <div className="card border-red-300 p-5 dark:border-red-800">

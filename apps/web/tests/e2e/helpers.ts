@@ -26,9 +26,26 @@ export function toneFile(): string {
   return tone;
 }
 
-export async function uploadRecording(request: APIRequestContext, title: string, extra: Record<string, string> = {}) {
+const talks: Record<string, string> = {};
+
+/** 11 s of "talking": half-second bursts of a tone over room noise, so the worker has a speech level and a
+ *  noise floor to measure. `noisy` puts the bursts only about 10 dB above the noise. */
+export function talkFile(noisy = false): string {
+  const key = noisy ? "noisy" : "clean";
+  if (talks[key] && fs.existsSync(talks[key])) return talks[key];
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "note-taker-audio-"));
+  const file = path.join(dir, `talk-${key}.wav`);
+  const [speech, noise] = noisy ? [0.05, 0.04] : [0.2, 0.002];
+  const expr = `${speech}*sin(2*PI*220*t)*lt(mod(t\\,1)\\,0.5)+${noise}*(random(0)-0.5)`;
+  execFileSync("ffmpeg", ["-y", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", `aevalsrc=${expr}:s=16000:d=11`, "-c:a", "pcm_s16le", file]);
+  talks[key] = file;
+  return file;
+}
+
+export async function uploadRecording(request: APIRequestContext, title: string, extra: Record<string, string> = {}, file: string = toneFile()) {
+  const wav = file.endsWith(".wav");
   const res = await request.post("/api/recordings", {
-    multipart: { file: { name: "tone.m4a", mimeType: "audio/mp4", buffer: fs.readFileSync(toneFile()) }, title, language: "cs", ...extra },
+    multipart: { file: { name: path.basename(file), mimeType: wav ? "audio/wav" : "audio/mp4", buffer: fs.readFileSync(file) }, title, language: "cs", ...extra },
   });
   if (!res.ok()) throw new Error(`upload failed: ${res.status()} ${await res.text()}`);
   return (await res.json()) as { id: string; status: string };

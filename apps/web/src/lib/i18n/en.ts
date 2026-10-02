@@ -54,6 +54,15 @@ export const en: Messages = {
     DIARIZATION_FAILED: "Speaker identification failed, the whole transcript is assigned to one speaker. Reason: {detail}",
     REDIARIZE_FAILED: "Recomputing speakers failed, the existing transcript and speakers are unchanged. Reason: {detail}",
   },
+  quality: {
+    margin: "noise margin {snr} dB",
+    details: "Speech {speech} dB, noise {noise} dB, speech makes up {share} % of the recording. Measured on the original file.",
+    title: "The sound of this recording may have hurt the transcript",
+    noisy: "Speech is only {snr} dB above the noise; 20 dB and more is good. Next time move closer to the microphone or pick a quieter room.",
+    quiet: "Speech is very quiet ({speech} dB). Next time move closer to the microphone or raise the input level.",
+    clipping: "The input was too loud and distorts ({pct} % of samples at full scale). Next time lower the input level or move away from the microphone.",
+    hint: "Listen to unclear places in the transcript rather than trusting them.",
+  },
   tags: {
     label: "Tags",
     placeholder: "project, customer, meeting type… (comma-separated)",
@@ -376,6 +385,12 @@ export const en: Messages = {
     silentMic: "No sound for {n} s. Check that the right microphone is selected and not muted.",
     silentDisplay: "No sound from the shared tab or screen for {n} s. Check that “Share audio” was ticked and the meeting is not muted.",
     clipping: "The input is too loud and distorts. Move away from the microphone or lower its level in the system settings.",
+    micTest: "Test the microphone",
+    micTestRunning: "Stay quiet for a moment, then say a few sentences in your normal voice… {n} s",
+    micTestOk: "The microphone is fine: speech {speech} dB, noise margin {snr} dB.",
+    micTestSilent: "No speech was heard. Check that the right microphone is selected and not muted.",
+    micTestNoisy: "Speech is only {snr} dB above the noise. Move closer to the microphone or quieten the room, otherwise the transcript will be less accurate.",
+    micTestQuiet: "Speech is very quiet ({speech} dB). Move closer to the microphone or raise its level in the system settings.",
     autosave: "Saved continuously in the browser; a crash or closed tab does not lose the recording.",
   },
   queue: {

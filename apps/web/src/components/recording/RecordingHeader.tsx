@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { ExportFormat, RecordingDetail } from "@note-taker/shared";
 import { StatusBadge } from "../StatusBadge";
+import { AudioQualityBadge } from "./AudioQualityNote";
 import { formatDate, formatDuration, phaseLabel } from "@/lib/format";
 import { fmt } from "@/lib/i18n";
 import { useI18n } from "@/lib/i18n/client";
@@ -107,6 +108,7 @@ export function RecordingHeader({
           <span>{formatDuration(rec.durationSec, m)}</span>
           <span>{langLabel}</span>
           {rec.speakerCount != null && <span>{fmt(m.detail.speakersCount, { n: rec.speakerCount })}</span>}
+          {completed && rec.audioQuality && <AudioQualityBadge quality={rec.audioQuality} />}
           <span className="truncate" title={rec.originalFilename}>
             {rec.originalFilename}
           </span>

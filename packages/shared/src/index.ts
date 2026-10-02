@@ -1,6 +1,8 @@
 export * from "./speaker-stats";
 export * from "./media";
 export * from "./input-monitor";
+export * from "./audio-quality";
+import type { AudioQuality } from "./audio-quality";
 
 /**
  * Shared API contracts between `apps/worker` (Python/FastAPI) and `apps/web` (Next.js).
@@ -102,6 +104,8 @@ export interface WorkerTaskResult {
   segments: TranscriptSegment[];
   /** Per-speaker voice embeddings from the diarization model (null when diarization did not run). */
   speaker_embeddings: Record<string, number[]> | null;
+  /** Levels of the original upload; null when not measurable or for a speakers-only re-run, absent on older workers. */
+  audio_quality?: AudioQuality | null;
   /** Relative URL (on the worker) of the normalized 16 kHz mono audio. */
   audio_url: string;
   audio_mime: string;
@@ -178,6 +182,8 @@ export interface RecordingDetail extends RecordingSummary {
   speakers: string[];
   segments: TranscriptSegment[];
   audioUrl: string | null;
+  /** Levels of the original upload as measured by the worker; null for older or unmeasurable recordings. */
+  audioQuality: AudioQuality | null;
 }
 
 export type ExportFormat = "md" | "txt" | "srt" | "vtt";

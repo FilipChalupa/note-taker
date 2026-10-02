@@ -52,6 +52,15 @@ export const cs = {
     DIARIZATION_FAILED: "Rozpoznání mluvčích selhalo, celý přepis je přiřazen jednomu mluvčímu. Důvod: {detail}",
     REDIARIZE_FAILED: "Přepočet mluvčích selhal, původní přepis i mluvčí zůstali beze změny. Důvod: {detail}",
   },
+  quality: {
+    margin: "odstup od šumu {snr} dB",
+    details: "Řeč {speech} dB, šum {noise} dB, řeč tvoří {share} % nahrávky. Měřeno na původním souboru.",
+    title: "Zvuk nahrávky mohl přepisu uškodit",
+    noisy: "Řeč je jen {snr} dB nad šumem, dobré je 20 dB a víc. Příště blíž k mikrofonu nebo tišší místnost.",
+    quiet: "Řeč je velmi tichá ({speech} dB). Příště blíž k mikrofonu nebo vyšší úroveň vstupu.",
+    clipping: "Vstup byl přebuzený a zkresluje ({pct} % vzorků na maximu). Příště nižší úroveň vstupu nebo dál od mikrofonu.",
+    hint: "Nejasná místa v přepisu si raději poslechněte.",
+  },
   tags: {
     label: "Štítky",
     placeholder: "projekt, zákazník, typ schůzky… (oddělené čárkou)",
@@ -374,6 +383,12 @@ export const cs = {
     silentMic: "Už {n} s není slyšet žádný zvuk. Zkontrolujte, že je vybraný správný mikrofon a není ztlumený.",
     silentDisplay: "Ze sdílené karty nebo obrazovky už {n} s nejde žádný zvuk. Zkontrolujte, že je zaškrtnuté „Sdílet zvuk“ a schůzka není ztlumená.",
     clipping: "Vstup je příliš hlasitý a zkresluje. Posuňte se dál od mikrofonu nebo snižte jeho úroveň v nastavení systému.",
+    micTest: "Vyzkoušet mikrofon",
+    micTestRunning: "Chvilku mlčte a pak řekněte pár vět normálním hlasem… {n} s",
+    micTestOk: "Mikrofon je v pořádku: řeč {speech} dB, odstup od šumu {snr} dB.",
+    micTestSilent: "Nebyla slyšet žádná řeč. Zkontrolujte, že je vybraný správný mikrofon a není ztlumený.",
+    micTestNoisy: "Řeč je jen {snr} dB nad šumem. Posuňte se blíž k mikrofonu nebo ztište okolí, jinak bude přepis méně přesný.",
+    micTestQuiet: "Řeč je velmi tichá ({speech} dB). Posuňte se blíž k mikrofonu nebo zvyšte jeho úroveň v nastavení systému.",
     autosave: "Průběžně se ukládá v prohlížeči, pád nebo zavření karty nahrávku neztratí.",
   },
   queue: {

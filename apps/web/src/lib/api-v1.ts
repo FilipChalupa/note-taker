@@ -1,6 +1,6 @@
 /** Shared shapes for /api/v1 so the MCP server and the web speak the same language. */
 import type { RecordingDetail, RecordingSummary, TranscriptSegment } from "@note-taker/shared";
-import { computeSpeakerStats } from "@note-taker/shared";
+import { audioQualityIssues, computeSpeakerStats } from "@note-taker/shared";
 import type { AuthedToken } from "@/lib/auth";
 import { hasScope } from "@/lib/auth";
 import { speakerLabel } from "@/lib/format";
@@ -31,6 +31,15 @@ export function publicRecording(rec: RecordingSummary | RecordingDetail) {
           hints: detail.hints,
           speakers: detail.speakers.map((id) => ({ id, name: speakerLabel(id, detail.speakers, detail.speakerNames, messages.en), named: Boolean(detail.speakerNames[id]) })),
           segmentCount: detail.segments.length,
+          audioQuality: detail.audioQuality
+            ? {
+                speechDb: detail.audioQuality.speech_db,
+                noiseDb: detail.audioQuality.noise_db,
+                snrDb: detail.audioQuality.snr_db,
+                clippedShare: detail.audioQuality.clipped_share,
+                issues: audioQualityIssues(detail.audioQuality),
+              }
+            : null,
         }
       : {}),
   };

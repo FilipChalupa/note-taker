@@ -246,6 +246,13 @@ class TaskQueue:
         return True
 
     # -------------------------------------------------------------- internal
+    def _quality(self, task: Task) -> Optional[dict]:
+        """Quality of the original upload; a speakers-only re-run has no upload, so no report."""
+        try:
+            return json.loads((task.dir / "quality.json").read_text())
+        except (OSError, ValueError):
+            return None
+
     def _persist(self, task: Task) -> None:
         task.dir.mkdir(parents=True, exist_ok=True)
         (task.dir / "status.json").write_text(json.dumps(task.to_json(), indent=2))
@@ -384,6 +391,10 @@ class TaskQueue:
         dst = task.dir / f"audio.{ext}"
         if task.input_path and Path(task.input_path).exists():
             src = Path(task.input_path)
+            # Measured on the upload itself: the normalized copy has its loudness evened out
+            quality = audio_utils.measure_quality(src, settings.sample_rate)
+            if quality is not None:
+                (task.dir / "quality.json").write_text(json.dumps(quality))
             audio_utils.normalize(src, dst, settings.sample_rate, settings.audio_codec, settings.loudness)
             task.audio_path = str(dst)
             task.duration = audio_utils.probe_duration(dst)
@@ -425,6 +436,7 @@ class TaskQueue:
             "speakers": out["speakers"],
             "speaker_embeddings": out.get("speaker_embeddings"),
             "segments": out["segments"],
+            "audio_quality": self._quality(task),
             "audio_url": f"/tasks/{task.id}/audio",
             "audio_mime": "audio/mpeg" if ext == "mp3" else "audio/wav",
         }

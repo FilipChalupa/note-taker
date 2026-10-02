@@ -29,6 +29,8 @@ export interface RecordingSummary {
   notes?: string | null;
   speakers?: Array<{ id: string; name: string; named: boolean }>;
   segmentCount?: number;
+  /** Levels of the original upload (dBFS) and what they mean for the transcript: "noisy", "quiet", "clipping". */
+  audioQuality?: { speechDb: number; noiseDb: number; snrDb: number; clippedShare: number; issues: string[] } | null;
 }
 
 export interface TranscriptJson {

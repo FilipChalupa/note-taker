@@ -66,6 +66,7 @@ function toDetailHead(r: RecordingRow): Omit<RecordingDetail, "segments"> {
     speakerNames: r.speakerNames ?? {},
     speakers: r.speakers ?? [],
     audioUrl: hasAudio ? `/api/recordings/${r.id}/audio` : null,
+    audioQuality: r.audioQuality ?? null,
   };
 }
 
@@ -87,6 +88,7 @@ function toDetail(r: RecordingRow): RecordingDetail {
     speakers: r.speakers ?? [],
     segments: r.segments ?? [],
     audioUrl: hasAudio ? `/api/recordings/${r.id}/audio` : null,
+    audioQuality: r.audioQuality ?? null,
   };
 }
 

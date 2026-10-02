@@ -1,5 +1,5 @@
 import { integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
-import type { ApiTokenScope, RecordingStatus, TranscriptSegment, VoiceSuggestion, WorkerTaskStatus } from "@note-taker/shared";
+import type { ApiTokenScope, AudioQuality, RecordingStatus, TranscriptSegment, VoiceSuggestion, WorkerTaskStatus } from "@note-taker/shared";
 
 export const recordings = sqliteTable("recordings", {
   id: text("id").primaryKey(),
@@ -45,6 +45,8 @@ export const recordings = sqliteTable("recordings", {
   speakerEmbeddings: text("speaker_embeddings", { mode: "json" }).$type<Record<string, number[]>>(),
   /** Known-voice suggestions per raw speaker id */
   speakerSuggestions: text("speaker_suggestions", { mode: "json" }).$type<Record<string, VoiceSuggestion>>().notNull().default({}),
+  /** Levels of the original upload as measured by the worker */
+  audioQuality: text("audio_quality", { mode: "json" }).$type<AudioQuality>(),
 
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),

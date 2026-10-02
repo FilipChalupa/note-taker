@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
-import { completedRecording, isolate, toneFile, uploadRecording, waitForStatus } from "./helpers";
+import { completedRecording, isolate, talkFile, toneFile, uploadRecording, waitForStatus } from "./helpers";
 
 isolate();
 
@@ -129,4 +129,76 @@ test("recorder: a silent input is called out, and the source choice is remembere
   await page.getByLabel(/Microphone \+ tab/).check();
   await page.reload();
   await expect(page.getByLabel(/Microphone \+ tab/)).toBeChecked();
+});
+
+test("recorder: the microphone test judges a few seconds of talking before the meeting", async ({ page, context }) => {
+  await context.grantPermissions(["microphone"]);
+  // what the analyser hears is scripted: a second of room noise, then talking with gaps; `__voice` sets how loud
+  await page.addInitScript(() => {
+    const w = window as unknown as { __voice: number; __frame: number };
+    w.__voice = 0.1;
+    w.__frame = 0;
+    AnalyserNode.prototype.getFloatTimeDomainData = function (array: Float32Array) {
+      const n = w.__frame++;
+      const talking = n > 20 && n % 8 !== 7;
+      const amp = talking ? w.__voice : 0.002;
+      for (let i = 0; i < array.length; i++) array[i] = amp * (i % 2 ? 1 : -1);
+    };
+  });
+  await page.clock.install();
+  await page.goto("/record");
+  const note = page.getByTestId("mic-test");
+  const runTest = async () => {
+    await page.getByRole("button", { name: "Test the microphone" }).click();
+    await expect(note).toContainText("Stay quiet for a moment");
+    await expect(page.getByRole("button", { name: /Start recording/ })).toBeDisabled();
+    await expect(async () => {
+      await page.clock.runFor(2_000);
+      await expect(note).toHaveAttribute("data-verdict", /.+/, { timeout: 500 });
+    }).toPass({ timeout: 20_000 });
+  };
+
+  await runTest();
+  await expect(note).toHaveAttribute("data-verdict", "ok");
+  await expect(note).toContainText("The microphone is fine: speech -20 dB, noise margin 34 dB.");
+
+  // the voice barely above the noise: the advice comes before the meeting, not with the transcript
+  await page.evaluate(() => {
+    const w = window as unknown as { __voice: number; __frame: number };
+    w.__voice = 0.006;
+    w.__frame = 0;
+  });
+  await runTest();
+  await expect(note).toHaveAttribute("data-verdict", "noisy");
+  await expect(note).toContainText("Speech is only 10 dB above the noise");
+
+  // starting the recording clears the verdict
+  await page.getByRole("button", { name: /Start recording/ }).click();
+  await expect(page.getByText("Recording", { exact: true })).toBeVisible();
+  await expect(note).toHaveCount(0);
+  await page.getByRole("button", { name: "Discard" }).click();
+});
+
+test("audio quality: the worker's report is shown with the transcript and warns about a noisy recording", async ({ page, request }) => {
+  const clean = await waitForStatus(request, (await uploadRecording(request, "Clean sound", {}, talkFile())).id, ["COMPLETED"]);
+  expect(clean.audioQuality.snr_db).toBeGreaterThan(30);
+  expect(clean.audioQuality.clipped_share).toBe(0);
+  await page.goto(`/recordings/${clean.id}`);
+  await expect(page.getByTestId("audio-quality")).toContainText(/noise margin \d\d dB/);
+  await expect(page.getByTestId("audio-quality")).toHaveAttribute("title", /Speech -1\d dB, noise -\d\d dB/);
+  await expect(page.getByTestId("audio-quality-warning")).toHaveCount(0);
+
+  const noisy = await waitForStatus(request, (await uploadRecording(request, "Noisy sound", {}, talkFile(true))).id, ["COMPLETED"]);
+  expect(noisy.audioQuality.snr_db).toBeLessThan(15);
+  await page.goto(`/recordings/${noisy.id}`);
+  const warning = page.getByTestId("audio-quality-warning");
+  await expect(warning).toContainText("may have hurt the transcript");
+  await expect(warning).toContainText(/Speech is only \d+ dB above the noise/);
+
+  // an even tone has nothing to measure: no report, no warning
+  const tone = await completedRecording(request, "Tone only");
+  expect(tone.audioQuality).toBeNull();
+  await page.goto(`/recordings/${tone.id}`);
+  await expect(page.getByRole("heading", { name: "Tone only" })).toBeVisible();
+  await expect(page.getByTestId("audio-quality")).toHaveCount(0);
 });

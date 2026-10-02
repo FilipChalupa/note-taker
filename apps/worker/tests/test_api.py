@@ -42,6 +42,7 @@ def test_transcribe_end_to_end(client, tone_file):
     assert res["speakers"] == ["SPEAKER_00", "SPEAKER_01"]
     assert [s["text"] for s in res["segments"]][0] == "Ahoj, jak se máš?"
     assert res["audio_mime"] == "audio/mpeg"
+    assert res["audio_quality"] is None  # an even tone has no speech to tell from noise
 
     # the pipeline received the vocabulary prompt
     from worker import pipeline as P

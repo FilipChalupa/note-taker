@@ -261,6 +261,8 @@ export async function syncRecording(id: string): Promise<void> {
       speakerEmbeddings: result.speaker_embeddings ?? null,
       speakerSuggestions: suggestSpeakers(result.speaker_embeddings),
       segments,
+      // a speakers-only re-run has no original upload to measure: the earlier report stays
+      audioQuality: diarizeOnly ? row.audioQuality : (result.audio_quality ?? null),
       audioPath: fs.existsSync(audioPath) ? audioPath : null,
       updatedAt: now(),
     })

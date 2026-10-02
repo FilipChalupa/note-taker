@@ -63,6 +63,17 @@ class Segment(BaseModel):
     words: Optional[list[Word]] = None
 
 
+class AudioQuality(BaseModel):
+    """Measured on the original upload (dBFS). Speech = frames at least 10 dB above the noise floor."""
+    speech_db: float
+    noise_db: float
+    snr_db: float
+    # Share of samples at full scale (0..1)
+    clipped_share: float
+    # Share of the recording that is speech (0..1)
+    speech_share: float
+
+
 class TaskResult(BaseModel):
     task_id: str
     kind: str = "transcribe"
@@ -76,6 +87,8 @@ class TaskResult(BaseModel):
     segments: list[Segment]
     # Per-speaker voice embeddings from the diarization model (for recognizing known voices)
     speaker_embeddings: Optional[dict[str, list[float]]] = None
+    # None when it could not be measured or the task had no original upload (speakers-only re-run)
+    audio_quality: Optional[AudioQuality] = None
     audio_url: str
     audio_mime: str
 
