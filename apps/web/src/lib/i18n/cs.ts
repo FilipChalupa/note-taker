@@ -60,6 +60,7 @@ export const cs = {
     quiet: "Řeč je velmi tichá ({speech} dB). Příště blíž k mikrofonu nebo vyšší úroveň vstupu.",
     clipping: "Vstup byl přebuzený a zkresluje ({pct} % vzorků na maximu). Příště nižší úroveň vstupu nebo dál od mikrofonu.",
     hint: "Nejasná místa v přepisu si raději poslechněte.",
+    short: { noisy: "šum", quiet: "tichý hlas", clipping: "přebuzení" },
   },
   tags: {
     label: "Štítky",
@@ -389,6 +390,9 @@ export const cs = {
     micTestSilent: "Nebyla slyšet žádná řeč. Zkontrolujte, že je vybraný správný mikrofon a není ztlumený.",
     micTestNoisy: "Řeč je jen {snr} dB nad šumem. Posuňte se blíž k mikrofonu nebo ztište okolí, jinak bude přepis méně přesný.",
     micTestQuiet: "Řeč je velmi tichá ({speech} dB). Posuňte se blíž k mikrofonu nebo zvyšte jeho úroveň v nastavení systému.",
+    suppressNoise: "Potlačit šum prohlížečem",
+    suppressNoiseHint: "Pomůže v hlučné místnosti. Vypnuté zní přirozeněji.",
+    micTestNoisyHint: "Nebo zapněte potlačení šumu a test zopakujte.",
     autosave: "Průběžně se ukládá v prohlížeči, pád nebo zavření karty nahrávku neztratí.",
   },
   queue: {

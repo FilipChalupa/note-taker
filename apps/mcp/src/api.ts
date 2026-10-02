@@ -24,6 +24,8 @@ export interface RecordingSummary {
   tags: string[];
   error: string | null;
   warning: string | null;
+  /** "noisy", "quiet" or "clipping" when the sound of the upload likely hurt the transcript. */
+  audioIssues?: string[];
   createdAt: string;
   updatedAt: string;
   notes?: string | null;

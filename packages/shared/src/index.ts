@@ -2,7 +2,7 @@ export * from "./speaker-stats";
 export * from "./media";
 export * from "./input-monitor";
 export * from "./audio-quality";
-import type { AudioQuality } from "./audio-quality";
+import type { AudioQuality, AudioQualityIssue } from "./audio-quality";
 
 /**
  * Shared API contracts between `apps/worker` (Python/FastAPI) and `apps/web` (Next.js).
@@ -160,6 +160,8 @@ export interface RecordingSummary {
   error: string | null;
   /** Non-fatal problem with the result, e.g. "DIARIZATION_FAILED:<reason>". */
   warning: string | null;
+  /** What the worker's sound report holds against the recording; empty when fine or not measured. */
+  audioIssues: AudioQualityIssue[];
   /** Free-form labels: project, customer, meeting type… */
   tags: string[];
   favorite: boolean;

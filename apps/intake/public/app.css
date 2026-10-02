@@ -73,6 +73,9 @@ h1 { font-size: 1.5rem; margin: 0 0 .25rem; }
 .meter > div { height: 100%; width: 0; background: var(--ok); transition: width .15s; }
 .meter > div.clip { background: var(--danger); }
 .warning { color: #d97706; font-size: .9rem; margin: 0; max-width: 26rem; text-align: center; }
+.note { font-size: .9rem; margin: 0; max-width: 26rem; text-align: center; border: 1px solid var(--border); border-radius: 6px; padding: .4rem .7rem; }
+.note.ok { color: var(--ok); }
+.note.warn { color: #d97706; }
 .error { color: var(--danger); font-size: .9rem; margin: .5rem 0 0; }
 .queue { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: .5rem; }
 .queue li { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: .75rem .9rem; }

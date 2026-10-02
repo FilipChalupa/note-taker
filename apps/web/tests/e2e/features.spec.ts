@@ -135,9 +135,15 @@ test("recorder: the microphone test judges a few seconds of talking before the m
   await context.grantPermissions(["microphone"]);
   // what the analyser hears is scripted: a second of room noise, then talking with gaps; `__voice` sets how loud
   await page.addInitScript(() => {
-    const w = window as unknown as { __voice: number; __frame: number };
+    const w = window as unknown as { __voice: number; __frame: number; __constraints: unknown };
     w.__voice = 0.1;
     w.__frame = 0;
+    // remember what the microphone was asked for
+    const open = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    navigator.mediaDevices.getUserMedia = (c) => {
+      w.__constraints = c;
+      return open(c);
+    };
     AnalyserNode.prototype.getFloatTimeDomainData = function (array: Float32Array) {
       const n = w.__frame++;
       const talking = n > 20 && n % 8 !== 7;
@@ -171,6 +177,16 @@ test("recorder: the microphone test judges a few seconds of talking before the m
   await runTest();
   await expect(note).toHaveAttribute("data-verdict", "noisy");
   await expect(note).toContainText("Speech is only 10 dB above the noise");
+  await expect(note).toContainText("switch on noise suppression");
+  expect(await page.evaluate(() => (window as unknown as { __constraints: { audio: { noiseSuppression: boolean } } }).__constraints.audio.noiseSuppression)).toBe(false);
+
+  // the browser's noise suppression is off by default, the switch is remembered and reaches the microphone
+  await page.getByLabel("Suppress noise in the browser").check();
+  await page.reload();
+  await expect(page.getByLabel("Suppress noise in the browser")).toBeChecked();
+  await runTest();
+  expect(await page.evaluate(() => (window as unknown as { __constraints: { audio: { noiseSuppression: boolean } } }).__constraints.audio.noiseSuppression)).toBe(true);
+  await expect(note).not.toContainText("switch on noise suppression");
 
   // starting the recording clears the verdict
   await page.getByRole("button", { name: /Start recording/ }).click();
@@ -194,6 +210,14 @@ test("audio quality: the worker's report is shown with the transcript and warns 
   const warning = page.getByTestId("audio-quality-warning");
   await expect(warning).toContainText("may have hurt the transcript");
   await expect(warning).toContainText(/Speech is only \d+ dB above the noise/);
+  expect(noisy.audioIssues).toEqual(["noisy"]);
+
+  // the list marks it too, the clean one carries no mark
+  await page.goto("/");
+  const noisyRow = page.getByRole("row").filter({ hasText: "Noisy sound" }).or(page.locator("li").filter({ hasText: "Noisy sound" }));
+  await expect(noisyRow.first().getByTestId("sound-badge")).toContainText("noise");
+  const cleanRow = page.getByRole("row").filter({ hasText: "Clean sound" }).or(page.locator("li").filter({ hasText: "Clean sound" }));
+  await expect(cleanRow.first().getByTestId("sound-badge")).toHaveCount(0);
 
   // an even tone has nothing to measure: no report, no warning
   const tone = await completedRecording(request, "Tone only");

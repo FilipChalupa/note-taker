@@ -28,6 +28,7 @@ function selectSummaryRows(): SummaryRow[] {
       favorite: recordings.favorite,
       archived: recordings.archived,
       ownerTokenId: recordings.ownerTokenId,
+      audioQuality: recordings.audioQuality,
       createdAt: recordings.createdAt,
       updatedAt: recordings.updatedAt,
     })

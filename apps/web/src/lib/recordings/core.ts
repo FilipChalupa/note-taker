@@ -2,6 +2,7 @@
 import fs from "node:fs";
 import { eq } from "drizzle-orm";
 import type { RecordingDetail, RecordingSummary, TranscriptMutationResult, TranscriptPatch } from "@note-taker/shared";
+import { audioQualityIssues } from "@note-taker/shared";
 import { db, schema } from "@/lib/db";
 import type { RecordingRow } from "@/lib/db/schema";
 
@@ -28,6 +29,7 @@ export type SummaryRow = Pick<
   | "favorite"
   | "archived"
   | "ownerTokenId"
+  | "audioQuality"
   | "createdAt"
   | "updatedAt"
 >;
@@ -46,6 +48,7 @@ export function toSummary(r: SummaryRow): RecordingSummary {
     speakerCount: r.speakerCount,
     error: r.error,
     warning: r.warning ?? null,
+    audioIssues: r.audioQuality ? audioQualityIssues(r.audioQuality) : [],
     tags: r.tags ?? [],
     favorite: Boolean(r.favorite),
     archived: Boolean(r.archived),

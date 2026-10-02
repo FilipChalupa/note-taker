@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { BulkAction, RecordingListQuery, RecordingPage, RecordingSort, RecordingSummary, RecordingView, TagCount } from "@note-taker/shared";
 import { StatusBadge } from "./StatusBadge";
+import { SoundBadge } from "./SoundBadge";
 import { Dialog } from "./Dialog";
 import { requestWorkerRefresh } from "./WorkerStatus";
 import { useToast } from "./Toast";
@@ -349,6 +350,7 @@ export function RecordingList({ initial, tags, query }: { initial: RecordingPage
                         <span>{formatDate(rec.createdAt, locale, tz)}</span>
                         {rec.durationSec != null && <span>{formatDuration(rec.durationSec, m)}</span>}
                         {rec.speakerCount != null && <span>{rec.speakerCount} {m.list.speakers.toLowerCase()}</span>}
+                        <SoundBadge issues={rec.audioIssues} />
                         {rec.archived && <span>{m.library.archivedBadge}</span>}
                       </div>
                     </div>
@@ -414,6 +416,11 @@ export function RecordingList({ initial, tags, query }: { initial: RecordingPage
                           {rec.title}
                         </Link>
                         {rec.archived && <span className="ml-2 rounded bg-zinc-100 px-1.5 text-[11px] text-zinc-500 dark:bg-zinc-800">{m.library.archivedBadge}</span>}
+                        {rec.audioIssues.length > 0 && (
+                          <span className="ml-2">
+                            <SoundBadge issues={rec.audioIssues} />
+                          </span>
+                        )}
                         <div className="text-xs text-zinc-500">{rec.originalFilename}</div>
                         {rec.tags.length > 0 && <TagChips tags={rec.tags} />}
                       </td>

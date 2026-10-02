@@ -41,6 +41,13 @@ const T = {
     silentMic: "Už {n} s není slyšet žádný zvuk. Zkontrolujte, že je vybraný správný mikrofon a není ztlumený.",
     silentDisplay: "Ze sdílené karty už {n} s nejde žádný zvuk. Zkontrolujte, že je zaškrtnuté „Sdílet zvuk“.",
     clipping: "Vstup je příliš hlasitý a zkresluje. Posuňte se dál od mikrofonu.",
+    suppressNoise: "Potlačit šum prohlížečem (pomůže v hlučné místnosti)",
+    micTest: "Vyzkoušet mikrofon",
+    micTestRunning: "Chvilku mlčte a pak řekněte pár vět normálním hlasem… {n} s",
+    micTestOk: "Mikrofon je v pořádku: řeč {speech} dB, odstup od šumu {snr} dB.",
+    micTestSilent: "Nebyla slyšet žádná řeč. Zkontrolujte, že je vybraný správný mikrofon a není ztlumený.",
+    micTestNoisy: "Řeč je jen {snr} dB nad šumem. Posuňte se blíž k mikrofonu, ztište okolí nebo zapněte potlačení šumu.",
+    micTestQuiet: "Řeč je velmi tichá ({speech} dB). Posuňte se blíž k mikrofonu nebo zvyšte jeho úroveň v nastavení systému.",
     unsupported: "Tento prohlížeč nahrávání nepodporuje.",
     autosave: "Průběžně se ukládá v prohlížeči, zavření karty nahrávku neztratí.",
     recoveryTitle: "Nalezena neodeslaná nahrávka",
@@ -108,6 +115,13 @@ const T = {
     silentMic: "No sound for {n} s. Check that the right microphone is selected and not muted.",
     silentDisplay: "No sound from the shared tab for {n} s. Check that “Share audio” was ticked.",
     clipping: "The input is too loud and distorts. Move away from the microphone.",
+    suppressNoise: "Suppress noise in the browser (helps in a noisy room)",
+    micTest: "Test the microphone",
+    micTestRunning: "Stay quiet for a moment, then say a few sentences in your normal voice… {n} s",
+    micTestOk: "The microphone is fine: speech {speech} dB, noise margin {snr} dB.",
+    micTestSilent: "No speech was heard. Check that the right microphone is selected and not muted.",
+    micTestNoisy: "Speech is only {snr} dB above the noise. Move closer to the microphone, quieten the room or switch on noise suppression.",
+    micTestQuiet: "Speech is very quiet ({speech} dB). Move closer to the microphone or raise its level in the system settings.",
     unsupported: "This browser cannot record audio.",
     autosave: "Saved continuously in this browser; a closed tab does not lose the recording.",
     recoveryTitle: "Unsent recording found",
@@ -514,6 +528,9 @@ function renderRecorder() {
   $("rec-error").textContent = rec.error || "";
   const source = document.querySelector("input[name=source]:checked")?.value || "mic";
   $("mic-field").hidden = source === "display";
+  $("suppress-field").hidden = source === "display";
+  $("mic-test-btn").hidden = p !== "idle" || source === "display";
+  if (p !== "idle") $("mic-test").hidden = true;
   $("display-hint").hidden = source === "mic";
   for (const r of document.querySelectorAll("input[name=source]")) r.disabled = p !== "idle";
   $("mic").disabled = p !== "idle";
@@ -531,6 +548,97 @@ document.querySelectorAll("input[name=source]").forEach(
   if (saved && !saved.disabled) saved.checked = true;
 }
 $("mic").addEventListener("change", (e) => store.set("intake.mic", e.target.value));
+// the browser's noise suppression: off by default (more natural), worth switching on in a noisy room
+$("suppress").checked = store.get("intake.suppress") === "1";
+$("suppress").addEventListener("change", (e) => store.set("intake.suppress", e.target.checked ? "1" : "0"));
+
+const micConstraints = (source) => ({ audio: { deviceId: $("mic").value ? { exact: $("mic").value } : undefined, echoCancellation: source === "both", noiseSuppression: $("suppress").checked } });
+
+// ---- microphone test: a few seconds of talking judged the way the worker later judges the upload
+// (the web app has the same logic in packages/shared/src/audio-quality.ts)
+const MIC_TEST_SECONDS = 6;
+const toDb = (v) => Math.round(20 * Math.log10(Math.max(v, 1e-5)) * 10) / 10;
+
+function assessMicTest(frames) {
+  const silent = { verdict: "silent", speechDb: null, noiseDb: null, snrDb: null };
+  if (frames.filter((f) => f.rms > SILENCE_RMS).length < 5) return silent;
+  const sorted = frames.map((f) => f.rms).sort((a, b) => a - b);
+  const noise = Math.max(sorted[Math.floor(sorted.length * 0.1)], 1e-5);
+  let speech = frames.filter((f) => f.rms > noise * 10 ** (10 / 20));
+  if (speech.length < 5) speech = frames.filter((f) => f.rms > noise * 10 ** (6 / 20));
+  if (speech.length < 5) return silent;
+  const speechDb = toDb(Math.sqrt(speech.reduce((a, f) => a + f.rms * f.rms, 0) / speech.length));
+  const noiseDb = toDb(noise);
+  const snrDb = Math.round((speechDb - noiseDb) * 10) / 10;
+  const clipped = frames.filter((f) => f.peak >= 0.99).length;
+  const verdict = clipped >= 3 ? "clipping" : snrDb < 15 ? "noisy" : speechDb < -40 ? "quiet" : "ok";
+  return { verdict, speechDb, noiseDb, snrDb };
+}
+
+let micTesting = false;
+async function runMicTest() {
+  if (micTesting || rec.phase !== "idle") return;
+  micTesting = true;
+  const note = $("mic-test");
+  const show = (text, cls) => {
+    note.hidden = false;
+    note.className = `note ${cls || ""}`;
+    note.textContent = text;
+  };
+  const buttons = ["rec-start", "mic-test-btn", "mic", "suppress"];
+  for (const id of buttons) $(id).disabled = true;
+  let mic = null;
+  let ctx = null;
+  try {
+    show(t("micTestRunning", { n: MIC_TEST_SECONDS }));
+    mic = await navigator.mediaDevices.getUserMedia(micConstraints("mic"));
+    void refreshMics();
+    ctx = new AudioContext();
+    const an = ctx.createAnalyser();
+    an.fftSize = 2048;
+    ctx.createMediaStreamSource(mic).connect(an);
+    const buf = new Float32Array(an.fftSize);
+    const frames = [];
+    const started = Date.now();
+    await new Promise((resolve) => {
+      const timer = setInterval(() => {
+        an.getFloatTimeDomainData(buf);
+        let sum = 0;
+        let peak = 0;
+        for (const v of buf) {
+          sum += v * v;
+          peak = Math.max(peak, Math.abs(v));
+        }
+        const rms = Math.sqrt(sum / buf.length);
+        frames.push({ rms, peak });
+        const left = MIC_TEST_SECONDS - (Date.now() - started) / 1000;
+        if (left <= 0) {
+          clearInterval(timer);
+          return resolve();
+        }
+        $("rec-level").style.width = `${Math.min(100, rms * 320)}%`;
+        show(t("micTestRunning", { n: Math.ceil(left) }));
+      }, 50);
+    });
+    const res = assessMicTest(frames.slice(5)); // the first quarter of a second is the microphone opening
+    const params = { speech: Math.round(res.speechDb ?? 0), snr: Math.round(res.snrDb ?? 0) };
+    const key = { ok: "micTestOk", silent: "micTestSilent", noisy: "micTestNoisy", quiet: "micTestQuiet", clipping: "clipping" }[res.verdict];
+    show(t(key, params), res.verdict === "ok" ? "ok" : "warn");
+    note.dataset.verdict = res.verdict;
+  } catch (err) {
+    note.hidden = true;
+    rec.error = err?.name === "NotAllowedError" ? t("micDenied") : String(err?.message || err);
+    renderRecorder();
+  } finally {
+    mic?.getTracks().forEach((tr) => tr.stop());
+    ctx?.close().catch(() => {});
+    $("rec-level").style.width = "0%";
+    for (const id of buttons) $(id).disabled = false;
+    micTesting = false;
+    renderRecorder();
+  }
+}
+$("mic-test-btn").onclick = () => void runMicTest();
 
 async function refreshMics() {
   if (!navigator.mediaDevices?.enumerateDevices) return;
@@ -562,7 +670,7 @@ async function startRecording() {
     let mic = null;
     let display = null;
     if (source !== "display") {
-      mic = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: $("mic").value ? { exact: $("mic").value } : undefined, echoCancellation: source === "both", noiseSuppression: false } });
+      mic = await navigator.mediaDevices.getUserMedia(micConstraints(source));
       void refreshMics();
     }
     if (source !== "mic") {

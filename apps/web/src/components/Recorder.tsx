@@ -19,6 +19,7 @@ const SILENCE_WARNING_SECONDS = 10;
 const MIC_TEST_SECONDS = 6;
 const SOURCE_KEY = "recorder.source";
 const DEVICE_KEY = "recorder.deviceId";
+const SUPPRESS_KEY = "recorder.noiseSuppression";
 
 function readPref(key: string): string | null {
   try {
@@ -54,6 +55,8 @@ export function Recorder() {
   const displayStream = useRef<MediaStream | null>(null);
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [deviceId, setDeviceId] = useState<string>("");
+  // the browser's noise suppression: off by default (more natural), worth switching on in a noisy room
+  const [suppress, setSuppress] = useState(false);
   const [phase, setPhase] = useState<Phase>("idle");
   const [elapsed, setElapsed] = useState(0);
   const [level, setLevel] = useState(0);
@@ -91,6 +94,7 @@ export function Recorder() {
     if (savedSource === "mic" || savedSource === "both" || (savedSource === "display" && typeof navigator.mediaDevices?.getDisplayMedia === "function")) setSource(savedSource);
     const savedDevice = readPref(DEVICE_KEY);
     if (savedDevice) setDeviceId(savedDevice);
+    setSuppress(readPref(SUPPRESS_KEY) === "1");
   }, []);
 
   // Enumerate mics (labels appear after the first permission grant)
@@ -155,7 +159,7 @@ export function Recorder() {
   useEffect(() => cleanup, [cleanup]);
 
   const micConstraints = (): MediaStreamConstraints => ({
-    audio: { deviceId: deviceId ? { exact: deviceId } : undefined, echoCancellation: source === "both", noiseSuppression: false, autoGainControl: true },
+    audio: { deviceId: deviceId ? { exact: deviceId } : undefined, echoCancellation: source === "both", noiseSuppression: suppress, autoGainControl: true },
   });
 
   /** A few seconds of talking before the meeting: the same microphone and settings as the recording itself,
@@ -450,6 +454,19 @@ export function Recorder() {
               </option>
             ))}
         </select>
+        <label className="mt-2 flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={suppress}
+            onChange={(e) => {
+              setSuppress(e.target.checked);
+              writePref(SUPPRESS_KEY, e.target.checked ? "1" : "0");
+            }}
+            disabled={active || phase === "uploading" || micTestRunning}
+          />
+          {m.record.suppressNoise}
+        </label>
+        <p className="mt-1 text-xs text-zinc-500">{m.record.suppressNoiseHint}</p>
       </div>
       )}
 
@@ -472,7 +489,7 @@ export function Recorder() {
             {m.record.clipping}
           </p>
         )}
-        {phase === "idle" && micTest && <MicTestNote test={micTest} />}
+        {phase === "idle" && micTest && <MicTestNote test={micTest} suppressOff={!suppress} />}
         {phase === "uploading" && progress != null && (
           <div className="h-2 w-64 overflow-hidden rounded bg-zinc-200 dark:bg-zinc-700">
             <div className="h-full bg-blue-500 transition-all" style={{ width: `${progress}%` }} />
@@ -522,7 +539,7 @@ export function Recorder() {
 }
 
 /** The running countdown or the verdict of the microphone test. */
-function MicTestNote({ test }: { test: { left: number } | MicTestResult }) {
+function MicTestNote({ test, suppressOff }: { test: { left: number } | MicTestResult; suppressOff: boolean }) {
   const { m } = useI18n();
   if ("left" in test) {
     return (
@@ -539,7 +556,7 @@ function MicTestNote({ test }: { test: { left: number } | MicTestResult }) {
       : test.verdict === "silent"
         ? m.record.micTestSilent
         : test.verdict === "noisy"
-          ? fmt(m.record.micTestNoisy, params)
+          ? `${fmt(m.record.micTestNoisy, params)}${suppressOff ? ` ${m.record.micTestNoisyHint}` : ""}`
           : test.verdict === "quiet"
             ? fmt(m.record.micTestQuiet, params)
             : m.record.clipping;

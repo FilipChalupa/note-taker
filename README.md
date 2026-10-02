@@ -56,10 +56,11 @@ reachable again.
 - Record from the microphone, a browser tab / screen (online meetings) or both; in-progress recordings survive a crash.
   The recorder says so when the input has been silent for ten seconds (a muted or wrong microphone, a tab shared
   without audio) or when it clips, and remembers the source and the microphone picked last time.
-  A short microphone test before the meeting measures the voice against the room noise and says what to change.
+  A short microphone test before the meeting (web app and intake page) measures the voice against the room noise and
+  says what to change; the browser's noise suppression can be switched on for a noisy room.
 - Every transcript comes with a sound report: the worker measures speech level, noise floor and clipping of the
   original upload. The noise margin is shown with the recording, and a warning appears above the transcript when
-  the sound itself (noise, a very quiet voice, clipping) is a likely cause of mistakes.
+  the sound itself (noise, a very quiet voice, clipping) is a likely cause of mistakes; the list marks such recordings.
 - Czech and English UI, phone-friendly layout, GPU utilization/VRAM/temperature in the header; processing statistics,
   disk usage and known voices in Settings. Dates follow the visitor's time zone.
 

@@ -84,13 +84,16 @@
               <span data-i18n="mic">Microphone</span>
               <select id="mic" class="input"></select>
             </label>
+            <label class="radio" id="suppress-field"><input type="checkbox" id="suppress" /> <span data-i18n="suppressNoise">Suppress noise in the browser</span></label>
             <div class="recorder">
               <div id="rec-timer" class="timer">0:00:00</div>
               <div id="rec-state" class="muted small" aria-live="polite">&nbsp;</div>
               <div class="meter"><div id="rec-level"></div></div>
               <p id="rec-warning" class="warning" role="alert" hidden></p>
+              <p id="mic-test" class="note" role="status" hidden></p>
               <div class="row gap center">
                 <button type="button" id="rec-start" class="btn primary big" data-i18n="start">● Start recording</button>
+                <button type="button" id="mic-test-btn" class="btn big" data-i18n="micTest">Test the microphone</button>
                 <button type="button" id="rec-pause" class="btn big" hidden data-i18n="pause">❚❚ Pause</button>
                 <button type="button" id="rec-resume" class="btn big" hidden data-i18n="resume">▶ Resume</button>
                 <button type="button" id="rec-stop" class="btn primary big" hidden data-i18n="stop">■ Stop and send</button>

@@ -83,6 +83,58 @@ test.describe("public intake", () => {
     await expect(page.locator("#queue li").first()).toContainText(/Sent for processing/, { timeout: 20_000 });
   });
 
+  test("the microphone test judges a few seconds of talking, noise suppression is remembered", async ({ page, context }) => {
+    await context.grantPermissions(["microphone"], { origin: INTAKE });
+    await page.addInitScript(() => {
+      const w = window as unknown as { __voice: number; __frame: number; __constraints: unknown };
+      w.__voice = 0.1;
+      w.__frame = 0;
+      const open = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+      navigator.mediaDevices.getUserMedia = (c) => {
+        w.__constraints = c;
+        return open(c);
+      };
+      AnalyserNode.prototype.getFloatTimeDomainData = function (array: Float32Array) {
+        const n = w.__frame++;
+        const talking = n > 20 && n % 8 !== 7;
+        const amp = talking ? w.__voice : 0.002;
+        for (let i = 0; i < array.length; i++) array[i] = amp * (i % 2 ? 1 : -1);
+      };
+    });
+    await page.clock.install();
+    await page.goto(`${INTAKE}/?code=${CODE}`);
+    await page.getByRole("tab", { name: "Record" }).click();
+    const note = page.locator("#mic-test");
+    const runTest = async () => {
+      await page.getByRole("button", { name: "Test the microphone" }).click();
+      await expect(note).toContainText("Stay quiet for a moment");
+      await expect(page.getByRole("button", { name: /Start recording/ })).toBeDisabled();
+      await expect(async () => {
+        await page.clock.runFor(2_000);
+        await expect(note).toHaveAttribute("data-verdict", /.+/, { timeout: 500 });
+      }).toPass({ timeout: 20_000 });
+    };
+    await runTest();
+    await expect(note).toHaveAttribute("data-verdict", "ok");
+    await expect(note).toContainText("The microphone is fine: speech -20 dB, noise margin 34 dB.");
+    expect(await page.evaluate(() => (window as unknown as { __constraints: { audio: { noiseSuppression: boolean } } }).__constraints.audio.noiseSuppression)).toBe(false);
+
+    await page.getByLabel(/Suppress noise/).check();
+    await page.reload();
+    await page.getByRole("tab", { name: "Record" }).click();
+    await expect(page.getByLabel(/Suppress noise/)).toBeChecked();
+    // the voice barely above the noise (set after the reload: the init script starts from a clear voice)
+    await page.evaluate(() => {
+      const w = window as unknown as { __voice: number; __frame: number };
+      w.__voice = 0.006;
+      w.__frame = 0;
+    });
+    await runTest();
+    await expect(note).toHaveAttribute("data-verdict", "noisy");
+    await expect(note).toContainText("Speech is only 10 dB above the noise");
+    expect(await page.evaluate(() => (window as unknown as { __constraints: { audio: { noiseSuppression: boolean } } }).__constraints.audio.noiseSuppression)).toBe(true);
+  });
+
   test("an interrupted recording is offered for sending after a reload", async ({ page, context }) => {
     await context.grantPermissions(["microphone"], { origin: INTAKE });
     await page.goto(`${INTAKE}/?code=${CODE}`);

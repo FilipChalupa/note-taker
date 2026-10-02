@@ -23,6 +23,7 @@ export function publicRecording(rec: RecordingSummary | RecordingDetail) {
     archived: rec.archived,
     error: rec.error,
     warning: rec.warning,
+    audioIssues: rec.audioIssues,
     createdAt: rec.createdAt,
     updatedAt: rec.updatedAt,
     ...(detail

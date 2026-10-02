@@ -62,6 +62,7 @@ export const en: Messages = {
     quiet: "Speech is very quiet ({speech} dB). Next time move closer to the microphone or raise the input level.",
     clipping: "The input was too loud and distorts ({pct} % of samples at full scale). Next time lower the input level or move away from the microphone.",
     hint: "Listen to unclear places in the transcript rather than trusting them.",
+    short: { noisy: "noise", quiet: "quiet voice", clipping: "clipping" },
   },
   tags: {
     label: "Tags",
@@ -391,6 +392,9 @@ export const en: Messages = {
     micTestSilent: "No speech was heard. Check that the right microphone is selected and not muted.",
     micTestNoisy: "Speech is only {snr} dB above the noise. Move closer to the microphone or quieten the room, otherwise the transcript will be less accurate.",
     micTestQuiet: "Speech is very quiet ({speech} dB). Move closer to the microphone or raise its level in the system settings.",
+    suppressNoise: "Suppress noise in the browser",
+    suppressNoiseHint: "Helps in a noisy room. Off sounds more natural.",
+    micTestNoisyHint: "Or switch on noise suppression and run the test again.",
     autosave: "Saved continuously in the browser; a crash or closed tab does not lose the recording.",
   },
   queue: {
