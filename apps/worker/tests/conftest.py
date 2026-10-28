@@ -50,8 +50,38 @@ def fake_diarize(self, audio_path, segments, min_speakers, max_speakers, progres
     return {"diarized": True, "diarization_error": None, "speakers": sorted({s["speaker"] for s in out}), "segments": out}
 
 
+def fake_run_tracks(self, tracks, language, progress, initial_prompt=None, levels=None, merge_threshold=0.0):
+    """Every track says one line as SPEAKER_00, at a time given by its position; merged by the real code."""
+    progress("TRANSCRIBING", 30, 0.3)
+    fake_run_tracks.calls.append({"tracks": tracks, "levels": sorted((levels or {}).keys())})
+    per_track = []
+    for k, tr in enumerate(tracks):
+        seg = {"start": float(k), "end": k + 0.8, "speaker": "SPEAKER_00", "text": f"track {tr['index']}", "words": None}
+        per_track.append((tr["index"], {"speakers": ["SPEAKER_00"], "segments": [seg],
+                                        "speaker_embeddings": {"SPEAKER_00": [float(i == k) for i in range(len(tracks))]}}))
+    out = P._merge_tracks(per_track, levels or {}, merge_threshold, drop_bleed=True)
+    out.update({"language": language or "cs", "diarized": True, "diarization_error": None})
+    return out
+
+
+fake_run_tracks.calls = []
+
+
+def fake_diarize_tracks(self, tracks, segments, progress, merge_threshold=0.0):
+    fake_diarize_tracks.calls.append({"tracks": tracks, "segments": segments})
+    per_track = [(tr["index"], {"speakers": ["SPEAKER_00"], "segments": [dict(s, speaker="SPEAKER_00") for s in segments if s.get("track") == tr["index"]],
+                                "speaker_embeddings": None}) for tr in tracks]
+    out = P._merge_tracks(per_track, {}, merge_threshold, drop_bleed=False)
+    out.update({"diarized": True, "diarization_error": None})
+    return out
+
+
+fake_diarize_tracks.calls = []
+
 P.Pipeline.run = fake_run
 P.Pipeline.diarize_only = fake_diarize
+P.Pipeline.run_tracks = fake_run_tracks
+P.Pipeline.diarize_only_tracks = fake_diarize_tracks
 
 
 def pytest_sessionfinish(session, exitstatus):
@@ -75,3 +105,19 @@ def client():
 
     with TestClient(app) as c:
         yield c
+
+
+@pytest.fixture(scope="session")
+def obs_file(tmp_path_factory) -> Path:
+    """OBS-like recording, 12 s: stream 0 = mix of 1 and 2, stream 1 = "desktop" (tone bursts in the first
+    half), stream 2 = "microphone" (bursts in the second half), stream 3 = silence."""
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg not installed")
+    path = tmp_path_factory.mktemp("audio") / "obs.mka"
+    desktop = "sine=frequency=300:duration=12,volume='if(lt(t,6),if(lt(mod(t,1),0.5),1,0),0)':eval=frame,volume=0.5"
+    mic = "sine=frequency=500:duration=12,volume='if(gte(t,6),if(lt(mod(t,1),0.5),1,0),0)':eval=frame,volume=0.2"
+    graph = (f"{desktop},asplit[d1][d2];{mic},asplit[m1][m2];[d1][m1]amix=inputs=2:normalize=0[mix];"
+             "anullsrc=r=16000:cl=mono,atrim=duration=12[sil]")
+    subprocess.run(["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-filter_complex", graph,
+                    "-map", "[mix]", "-map", "[d2]", "-map", "[m2]", "-map", "[sil]", "-c:a", "flac", str(path)], check=True)
+    return path

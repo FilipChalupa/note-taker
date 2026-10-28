@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse, JSONResponse
 
 from . import __version__
 from . import gpu as gpu_telemetry
-from .audio import ensure_ffmpeg
+from .audio import ensure_ffmpeg, probe_audio_streams
 from .config import settings
 from .models import (CudaInfo, Health, QueueInfo, TaskResult, TaskStatus,
                      TaskStatusResponse, TranscribeAccepted)
@@ -21,6 +21,7 @@ from .metrics import metrics
 from .pipeline import pipeline
 from .stats import stats
 from .queue import PHASE_LABEL, task_queue
+from .tracks import parse_track_specs
 
 logging.basicConfig(
     level=logging.INFO,
@@ -61,6 +62,32 @@ def _get_task_or_404(task_id: str):
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     return task
+
+
+TRACKS_DESCRIPTION = (
+    'JSON array choosing the audio streams of a multi-track file, e.g. [{"index": 1, "name": "Online"}, '
+    '{"index": 2, "name": "Filip", "max_speakers": 1}]. `index` counts audio streams from 0; `use: false` skips '
+    "one. Omitted: streams with their own speech are found automatically (MULTITRACK=auto)."
+)
+
+
+def _parse_tracks(raw: Optional[str]) -> Optional[list[dict]]:
+    if raw is None or not raw.strip():
+        return None
+    try:
+        return [s.to_json() for s in parse_track_specs(json.loads(raw))]
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(400, f"tracks: {exc}")
+
+
+def _check_tracks_exist(tracks: Optional[list[dict]], path: Path) -> None:
+    if not tracks:
+        return
+    count = len(probe_audio_streams(path))
+    missing = [t["index"] for t in tracks if t["index"] >= count]
+    if missing:
+        path.unlink(missing_ok=True)
+        raise HTTPException(400, f"tracks: the file has {count} audio stream(s), no track {missing[0]}")
 
 
 def _status_response(task) -> TaskStatusResponse:
@@ -132,6 +159,7 @@ async def transcribe(
     min_speakers: Optional[int] = Form(default=None),
     max_speakers: Optional[int] = Form(default=None),
     initial_prompt: Optional[str] = Form(default=None, description="Glossary / vocabulary hints for Whisper"),
+    tracks: Optional[str] = Form(default=None, description=TRACKS_DESCRIPTION),
 ) -> TranscribeAccepted:
     if min_speakers is not None and min_speakers < 1:
         raise HTTPException(400, "min_speakers must be >= 1")
@@ -140,6 +168,7 @@ async def transcribe(
     if min_speakers and max_speakers and min_speakers > max_speakers:
         raise HTTPException(400, "min_speakers must be <= max_speakers")
 
+    track_specs = _parse_tracks(tracks)
     lang = (language or "").strip().lower() or settings.default_language
     if lang in ("auto", "none"):
         lang = None
@@ -155,6 +184,7 @@ async def transcribe(
     if tmp_path.stat().st_size == 0:
         tmp_path.unlink(missing_ok=True)
         raise HTTPException(400, "Empty file")
+    _check_tracks_exist(track_specs, tmp_path)
 
     task = task_queue.submit(
         original_filename=file.filename or tmp_path.name,
@@ -163,6 +193,7 @@ async def transcribe(
         min_speakers=min_speakers,
         max_speakers=max_speakers,
         initial_prompt=initial_prompt,
+        tracks=track_specs,
     )
     return TranscribeAccepted(
         task_id=task.id,
@@ -179,6 +210,8 @@ async def diarize(
     language: Optional[str] = Form(default=None),
     min_speakers: Optional[int] = Form(default=None),
     max_speakers: Optional[int] = Form(default=None),
+    tracks: Optional[str] = Form(default=None, description="Multi-track re-run: the original file plus the tracks it was "
+                                 "transcribed from; every segment carries its `track`. " + TRACKS_DESCRIPTION),
 ) -> TranscribeAccepted:
     """Re-run speaker identification only, on an already transcribed recording."""
     if not settings.diarization_enabled or not settings.hf_token:
@@ -196,6 +229,7 @@ async def diarize(
         assert isinstance(parsed, list)
     except (ValueError, AssertionError):
         raise HTTPException(400, "segments must be a JSON array")
+    track_specs = _parse_tracks(tracks)
 
     suffix = Path(file.filename or "audio").suffix or ".bin"
     tmp_dir = settings.data_dir / "incoming"
@@ -207,6 +241,7 @@ async def diarize(
     if tmp_path.stat().st_size == 0:
         tmp_path.unlink(missing_ok=True)
         raise HTTPException(400, "Empty file")
+    _check_tracks_exist(track_specs, tmp_path)
 
     task = task_queue.submit(
         original_filename=file.filename or tmp_path.name,
@@ -216,6 +251,7 @@ async def diarize(
         max_speakers=max_speakers,
         kind="diarize",
         segments=parsed,
+        tracks=track_specs,
     )
     return TranscribeAccepted(task_id=task.id, status=task.status, queue_position=task_queue.queue_position(task.id) or 0)
 

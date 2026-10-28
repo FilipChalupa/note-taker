@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
-import type { BulkAction, RecordingDetail, SegmentEdit, TranscriptMutationResult, TranscriptSegment } from "@note-taker/shared";
+import type { BulkAction, RecordingDetail, SegmentEdit, TrackSpec, TranscriptMutationResult, TranscriptSegment } from "@note-taker/shared";
 import { recordingDir } from "@/lib/config";
 import { db, rawDb, schema } from "@/lib/db";
 import { forgetSample, learnVoice } from "@/lib/voices";
@@ -25,6 +25,8 @@ export interface CreateRecordingInput {
   maxSpeakers?: number;
   /** API token that created it, so submit-only tokens can read back their own recordings. */
   ownerTokenId?: string;
+  /** Multi-track files: the audio streams to transcribe; omitted = the worker decides. */
+  tracks?: TrackSpec[];
   file: File;
 }
 
@@ -74,6 +76,7 @@ function insertRecording(input: {
   minSpeakers?: number;
   maxSpeakers?: number;
   ownerTokenId?: string;
+  tracks?: TrackSpec[];
 }): RecordingDetail {
   const ext = path.extname(input.originalFilename).toLowerCase();
   const ts = now();
@@ -90,6 +93,7 @@ function insertRecording(input: {
       minSpeakers: input.minSpeakers ?? null,
       maxSpeakers: input.maxSpeakers ?? null,
       ownerTokenId: input.ownerTokenId ?? null,
+      trackConfig: input.tracks ?? null,
       status: "QUEUED",
       phase: "QUEUED",
       createdAt: ts,
@@ -287,7 +291,14 @@ export function mergeSpeakersPatch(id: string, from: string, into: string): Tran
   const suggestions = { ...(row.speakerSuggestions ?? {}) };
   delete suggestions[from];
   forgetSample(id, from);
-  db.update(recordings).set({ speakerEmbeddings: embeddings, speakerSuggestions: suggestions }).where(eq(recordings.id, id)).run();
+  // a track that had `from` now has `into`
+  const tracks = row.tracks?.map((t) =>
+    t.speakers.includes(from) ? { ...t, speakers: [...new Set(t.speakers.map((sp) => (sp === from ? into : sp)))] } : t,
+  );
+  db.update(recordings)
+    .set({ speakerEmbeddings: embeddings, speakerSuggestions: suggestions, ...(tracks ? { tracks } : {}) })
+    .where(eq(recordings.id, id))
+    .run();
   saveSegments(id, row, segments, names);
   return mutationResult(id, { kind: "speakerMerge", from, into });
 }

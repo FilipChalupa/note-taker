@@ -2,6 +2,7 @@ export * from "./speaker-stats";
 export * from "./media";
 export * from "./input-monitor";
 export * from "./audio-quality";
+export * from "./tracks";
 import type { AudioQuality, AudioQualityIssue } from "./audio-quality";
 
 /**
@@ -32,6 +33,41 @@ export interface TranscribeParams {
   max_speakers?: number;
   /** Glossary / vocabulary hints handed to Whisper as initial prompt. */
   initial_prompt?: string;
+  /** Multi-track files: which audio streams to transcribe separately. Omitted = the worker decides. */
+  tracks?: TrackSpec[];
+}
+
+/** One audio stream of a multi-track file (OBS: mix, desktop audio, microphone) as requested by the client. */
+export interface TrackSpec {
+  /** Counts audio streams only, from 0 (ffmpeg `0:a:N`). */
+  index: number;
+  /** Shown with the track; a track with one speaker names that speaker (e.g. "Filip", "Online"). */
+  name?: string | null;
+  /** false skips the stream (default true). */
+  use?: boolean;
+  min_speakers?: number | null;
+  max_speakers?: number | null;
+}
+
+/** What the worker found in, and did with, one audio stream of a multi-track file. */
+export type TrackRole = "speech" | "mix" | "duplicate" | "silent";
+
+export interface TrackInfo {
+  index: number;
+  /** Requested name, else the stream's title tag. */
+  name: string | null;
+  /** Title tag of the stream in the file. */
+  title: string | null;
+  /** "speech": own speech; "mix": sum of other tracks; "duplicate": copy of another track; "silent". */
+  role: TrackRole;
+  /** Transcribed separately. */
+  used: boolean;
+  min_speakers: number | null;
+  max_speakers: number | null;
+  /** Levels of this stream in the original upload. */
+  quality: AudioQuality | null;
+  /** Speaker ids found on this track. */
+  speakers: string[];
 }
 
 /** Response of `POST /transcribe`. */
@@ -86,6 +122,8 @@ export interface TranscriptSegment {
   speaker: string;
   text: string;
   words?: TranscriptWord[];
+  /** Audio stream the segment was transcribed from (multi-track recordings only). */
+  track?: number;
 }
 
 /** Response of `GET /tasks/{id}/result`. */
@@ -106,6 +144,8 @@ export interface WorkerTaskResult {
   speaker_embeddings: Record<string, number[]> | null;
   /** Levels of the original upload; null when not measurable or for a speakers-only re-run, absent on older workers. */
   audio_quality?: AudioQuality | null;
+  /** Every audio stream of a multi-track file; null for a single-track file, absent on older workers. */
+  tracks?: TrackInfo[] | null;
   /** Relative URL (on the worker) of the normalized 16 kHz mono audio. */
   audio_url: string;
   audio_mime: string;
@@ -186,6 +226,10 @@ export interface RecordingDetail extends RecordingSummary {
   audioUrl: string | null;
   /** Levels of the original upload as measured by the worker; null for older or unmeasurable recordings. */
   audioQuality: AudioQuality | null;
+  /** Audio streams of a multi-track recording and how they were used; null for a single-track file. */
+  tracks: TrackInfo[] | null;
+  /** Tracks requested for the next run; null = chosen automatically. */
+  trackConfig: TrackSpec[] | null;
 }
 
 export type ExportFormat = "md" | "txt" | "srt" | "vtt";

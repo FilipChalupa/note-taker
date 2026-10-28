@@ -2,7 +2,7 @@
 
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { RecordingDetail, SegmentEdit, TranscriptMutationResult, TranscriptSegment } from "@note-taker/shared";
+import type { RecordingDetail, SegmentEdit, TrackSpec, TranscriptMutationResult, TranscriptSegment } from "@note-taker/shared";
 import { computeSpeakerStats } from "@note-taker/shared";
 import { api } from "@/lib/api-client";
 import { useToast } from "./Toast";
@@ -15,6 +15,7 @@ import { SegmentEditor, type SegmentDraft } from "./recording/SegmentEditor";
 import { SpeakersPanel } from "./recording/SpeakersPanel";
 import { TranscriptTurn } from "./recording/TranscriptTurn";
 import { ConfirmDialog, RediarizeDialog, ShortcutsDialog, type ConfirmRequest, type RediarizeOptions } from "./recording/dialogs";
+import { TracksDialog } from "./recording/TracksPanel";
 import { useTranscriptSearch } from "./recording/useTranscriptSearch";
 import { useElementHeight, useTranscriptWindow } from "./recording/useTranscriptWindow";
 import { errorLabel, groupTurns, phaseLabel, speakerLabel, warningLabel } from "@/lib/format";
@@ -25,7 +26,7 @@ import { useI18n } from "@/lib/i18n/client";
 const POLL_MS = 2500;
 
 type Snapshot = Pick<RecordingDetail, "segments" | "speakers" | "speakerNames">;
-type DialogState = null | { kind: "rediarize" } | ({ kind: "confirm" } & ConfirmRequest) | { kind: "shortcuts" };
+type DialogState = null | { kind: "rediarize" } | { kind: "tracks" } | ({ kind: "confirm" } & ConfirmRequest) | { kind: "shortcuts" };
 
 export function RecordingView({ initial }: { initial: RecordingDetail }) {
   const { m } = useI18n();
@@ -317,7 +318,7 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
     if (JSON.stringify(names) !== JSON.stringify(rec.speakerNames)) await patch({ speakerNames: names });
   };
 
-  const submitRediarize = async (options: RediarizeOptions) => {
+  const submitRediarize = async (options: RediarizeOptions & { tracks?: TrackSpec[] }) => {
     setDialog(null);
     setActionError(null);
     try {
@@ -345,13 +346,19 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
       })(),
     });
 
-  const doRetry = async () => {
+  const doRetry = async (tracks?: TrackSpec[] | null) => {
     try {
-      setRec(await api<RecordingDetail>(m, `/api/recordings/${rec.id}/retry`, { method: "POST" }));
+      const body = tracks === undefined ? undefined : JSON.stringify({ tracks });
+      setRec(await api<RecordingDetail>(m, `/api/recordings/${rec.id}/retry`, { method: "POST", body }));
       requestWorkerRefresh();
     } catch (err) {
       fail(err);
     }
+  };
+
+  const submitTracks = (tracks: TrackSpec[] | null) => {
+    setDialog(null);
+    void doRetry(tracks);
   };
 
   const retry = () => {
@@ -600,11 +607,19 @@ export function RecordingView({ initial }: { initial: RecordingDetail }) {
             onApplySuggestions={applySuggestions}
             onMerge={mergeSpeaker}
             onSaveHints={(hints) => void patch({ hints })}
+            onEditTracks={() => setDialog({ kind: "tracks" })}
           />
         </div>
       )}
 
       <RediarizeDialog open={dialog?.kind === "rediarize"} speakerCount={rec.speakerCount} onClose={() => setDialog(null)} onSubmit={submitRediarize} />
+      <TracksDialog
+        open={dialog?.kind === "tracks"}
+        tracks={rec.tracks}
+        onClose={() => setDialog(null)}
+        onSubmit={submitTracks}
+        onSpeakersOnly={(tracks) => void submitRediarize({ tracks })}
+      />
       <ConfirmDialog request={dialog?.kind === "confirm" ? dialog : null} onClose={() => setDialog(null)} />
       <ShortcutsDialog open={dialog?.kind === "shortcuts"} onClose={() => setDialog(null)} />
     </div>

@@ -41,9 +41,23 @@ export function publicRecording(rec: RecordingSummary | RecordingDetail) {
                 issues: audioQualityIssues(detail.audioQuality),
               }
             : null,
+          tracks: detail.tracks?.map((t) => ({
+            index: t.index,
+            name: t.name,
+            role: t.role,
+            used: t.used,
+            speakers: t.speakers,
+            snrDb: t.quality?.snr_db ?? null,
+          })) ?? null,
         }
       : {}),
   };
+}
+
+/** "Online" for a named track, "track 2" otherwise (1-based for people). */
+function trackName(rec: RecordingDetail, index: number | undefined): string | null {
+  if (index === undefined || !rec.tracks) return null;
+  return rec.tracks.find((t) => t.index === index)?.name ?? `track ${index + 1}`;
 }
 
 export function publicSegments(rec: RecordingDetail, withWords: boolean) {
@@ -54,6 +68,7 @@ export function publicSegments(rec: RecordingDetail, withWords: boolean) {
     speaker: s.speaker,
     speakerName: speakerLabel(s.speaker, rec.speakers, rec.speakerNames, messages.en),
     text: s.text,
+    ...(rec.tracks ? { track: s.track ?? null, trackName: trackName(rec, s.track) } : {}),
     ...(withWords && s.words ? { words: s.words.map((w) => ({ word: w.word, start: w.start ?? null, end: w.end ?? null })) } : {}),
   }));
 }

@@ -18,7 +18,10 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
+import numpy as np
+
 from . import audio as audio_utils
+from . import tracks as tracks_utils
 from .config import settings
 from .models import TaskStatus
 from .pipeline import pipeline
@@ -63,6 +66,11 @@ class Task:
     segments_path: Optional[str] = None
     initial_prompt: Optional[str] = None  # glossary / vocabulary hints for Whisper
     phase_fraction: Optional[float] = None  # real progress of the current phase (0-1) when known
+    # Multi-track: the requested streams (TrackSpec dicts; None = decide automatically), the normalized
+    # audio of every used stream [{index, path, min_speakers, max_speakers}] and the report on all streams
+    tracks: Optional[list] = None
+    track_audio: Optional[list] = None
+    track_info: Optional[list] = None
 
     @property
     def dir(self) -> Path:
@@ -139,7 +147,8 @@ class TaskQueue:
                 # Worker died mid-task: requeue from the original upload or, after conversion,
                 # from the normalized audio (the upload is deleted once converted)
                 has_input = bool(task.input_path and Path(task.input_path).exists())
-                has_audio = bool(task.audio_path and Path(task.audio_path).exists())
+                has_audio = bool(task.audio_path and Path(task.audio_path).exists()) and all(
+                    Path(t["path"]).exists() for t in task.track_audio or [])
                 if has_input or has_audio:
                     task.status = TaskStatus.QUEUED
                     task.progress = 0
@@ -178,7 +187,7 @@ class TaskQueue:
     def submit(self, original_filename: str, input_path: Path, language: Optional[str],
                min_speakers: Optional[int], max_speakers: Optional[int],
                kind: str = "transcribe", segments: Optional[list] = None,
-               initial_prompt: Optional[str] = None) -> Task:
+               initial_prompt: Optional[str] = None, tracks: Optional[list] = None) -> Task:
         task = Task(
             id=uuid.uuid4().hex,
             original_filename=original_filename,
@@ -187,6 +196,7 @@ class TaskQueue:
             max_speakers=max_speakers,
             kind=kind,
             initial_prompt=(initial_prompt or "").strip()[:1500] or None,
+            tracks=tracks,
         )
         task.dir.mkdir(parents=True, exist_ok=True)
         final_input = task.dir / f"input{input_path.suffix.lower() or '.bin'}"
@@ -252,6 +262,66 @@ class TaskQueue:
             return json.loads((task.dir / "quality.json").read_text())
         except (OSError, ValueError):
             return None
+
+    def _plan_tracks(self, task: Task, src: Path) -> Optional[list[dict]]:
+        """Which audio streams to transcribe separately; None = treat the file as single-track.
+
+        Without a request (`task.tracks`) every stream carrying its own speech is used and the mix, silent
+        and duplicate streams are skipped (MULTITRACK=auto). A request decides `use` per stream itself; the
+        automatic role is still reported. Frame levels of every used stream are saved for bleed detection.
+        """
+        if task.tracks is None and (settings.multitrack != "auto" or task.kind == "diarize"):
+            # a speakers-only re-run follows the transcript it is given: multi-track only when asked
+            return None
+        streams = audio_utils.probe_audio_streams(src)
+        specs = {s.index: s for s in tracks_utils.parse_track_specs(task.tracks)} if task.tracks else None
+        if specs:
+            missing = sorted(i for i in specs if i >= len(streams))
+            if missing:
+                raise RuntimeError(f"The file has {len(streams)} audio stream(s), no track {missing[0]}")
+        if len(streams) < 2:
+            return None
+        measured = [audio_utils.stream_levels(src, st["index"], settings.sample_rate) for st in streams]
+        roles = tracks_utils.classify_tracks([lv for lv, _ in measured])
+        plan = []
+        for st, (lv, quality), role in zip(streams, measured, roles):
+            spec = specs.get(st["index"]) if specs else None
+            used = spec.use if spec else (specs is None and role == "speech")
+            plan.append({
+                "index": st["index"],
+                "name": (spec.name if spec else None) or st["title"],
+                "title": st["title"],
+                "role": role,
+                "used": bool(used),
+                "min_speakers": spec.min_speakers if spec else None,
+                "max_speakers": spec.max_speakers if spec else None,
+                "quality": quality,
+            })
+            if used and lv is not None:
+                np.save(task.dir / f"levels{st['index']}.npy", lv.astype(np.float32))
+        if not any(t["used"] for t in plan):
+            return None  # nothing with speech of its own: the default stream, as before
+        return plan
+
+    def _convert_tracks(self, task: Task, src: Path, dst: Path, ext: str, plan: list[dict]) -> None:
+        """Normalize every used stream on its own, plus one mix of them for playback."""
+        used = [t for t in plan if t["used"]]
+        task.track_audio = []
+        for k, t in enumerate(used):
+            path = task.dir / f"track{t['index']}.{ext}"
+            audio_utils.normalize(src, path, settings.sample_rate, settings.audio_codec, settings.loudness, streams=[t["index"]])
+            task.track_audio.append({"index": t["index"], "path": str(path),
+                                     "min_speakers": t["min_speakers"], "max_speakers": t["max_speakers"]})
+            self._update(task, TaskStatus.CONVERTING, 5 + int(8 * (k + 1) / (len(used) + 1)))
+        task.track_info = plan
+        if task.kind != "diarize":
+            # one file to listen to; the sound report is the weakest used track (where mistakes come from)
+            audio_utils.normalize(src, dst, settings.sample_rate, settings.audio_codec, settings.loudness,
+                                  streams=[t["index"] for t in used])
+            reports = [t["quality"] for t in used if t["quality"]]
+            if reports:
+                (task.dir / "quality.json").write_text(json.dumps(min(reports, key=lambda q: q["snr_db"])))
+        self._persist(task)
 
     def _persist(self, task: Task) -> None:
         task.dir.mkdir(parents=True, exist_ok=True)
@@ -391,11 +461,18 @@ class TaskQueue:
         dst = task.dir / f"audio.{ext}"
         if task.input_path and Path(task.input_path).exists():
             src = Path(task.input_path)
-            # Measured on the upload itself: the normalized copy has its loudness evened out
-            quality = audio_utils.measure_quality(src, settings.sample_rate)
-            if quality is not None:
-                (task.dir / "quality.json").write_text(json.dumps(quality))
-            audio_utils.normalize(src, dst, settings.sample_rate, settings.audio_codec, settings.loudness)
+            plan = self._plan_tracks(task, src)
+            if plan is None:
+                # Measured on the upload itself: the normalized copy has its loudness evened out
+                quality = audio_utils.measure_quality(src, settings.sample_rate)
+                if quality is not None:
+                    (task.dir / "quality.json").write_text(json.dumps(quality))
+                audio_utils.normalize(src, dst, settings.sample_rate, settings.audio_codec, settings.loudness)
+            else:
+                self._convert_tracks(task, src, dst, ext, plan)
+            if not dst.exists():
+                # speakers-only re-run of a multi-track recording: there is no playback mix, only the tracks
+                dst = Path(task.track_audio[0]["path"])  # type: ignore[index]
             task.audio_path = str(dst)
             task.duration = audio_utils.probe_duration(dst)
             self._update(task, TaskStatus.CONVERTING, 15)
@@ -417,13 +494,29 @@ class TaskQueue:
         def progress(status: str, pct: int, fraction: Optional[float] = None) -> None:
             self._update(task, TaskStatus(status), pct, fraction)
 
+        threshold = settings.voice_merge_threshold
         if task.kind == "diarize":
             segments = json.loads(Path(task.segments_path).read_text())  # type: ignore[arg-type]
-            out = pipeline.diarize_only(dst, segments, task.min_speakers, task.max_speakers, progress)
+            if task.track_audio:
+                out = pipeline.diarize_only_tracks(task.track_audio, segments, progress, merge_threshold=threshold)
+            else:
+                out = pipeline.diarize_only(dst, segments, task.min_speakers, task.max_speakers, progress)
             out["language"] = task.language or "unknown"
+        elif task.track_audio:
+            levels = {}
+            for t in task.track_audio:
+                f = task.dir / f"levels{t['index']}.npy"
+                levels[t["index"]] = np.load(f) if f.exists() else None
+            out = pipeline.run_tracks(task.track_audio, task.language, progress, initial_prompt=task.initial_prompt,
+                                      levels=levels, merge_threshold=threshold)
         else:
             out = pipeline.run(dst, task.language, task.min_speakers, task.max_speakers, progress,
                                initial_prompt=task.initial_prompt)
+
+        track_info = None
+        if task.track_info:
+            speakers_by_track = out.get("track_speakers") or {}
+            track_info = [{**t, "speakers": speakers_by_track.get(t["index"], []) if t["used"] else []} for t in task.track_info]
 
         result = {
             "task_id": task.id,
@@ -436,6 +529,7 @@ class TaskQueue:
             "speakers": out["speakers"],
             "speaker_embeddings": out.get("speaker_embeddings"),
             "segments": out["segments"],
+            "tracks": track_info,
             "audio_quality": self._quality(task),
             "audio_url": f"/tasks/{task.id}/audio",
             "audio_mime": "audio/mpeg" if ext == "mp3" else "audio/wav",

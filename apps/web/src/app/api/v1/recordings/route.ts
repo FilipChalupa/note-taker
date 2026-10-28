@@ -5,6 +5,7 @@ import { apiFail, hasScope, requireToken, withApi } from "@/lib/auth";
 import { publicRecording } from "@/lib/api-v1";
 import { createRecording, listRecordings } from "@/lib/recordings";
 import { ensurePollerStarted } from "@/lib/poller";
+import { parseTracksField } from "@/lib/tracks";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,7 +35,10 @@ export const GET = withApi("recordings.list", async (req) => {
   };
 });
 
-/** multipart/form-data: file plus optional title, language, tags, hints, notes, minSpeakers, maxSpeakers. */
+/**
+ * multipart/form-data: file plus optional title, language, tags, hints, notes, minSpeakers, maxSpeakers and
+ * tracks (JSON array of TrackSpec, for multi-track files).
+ */
 export const POST = withApi("recordings.create", async (req) => {
   const token = requireToken(req, ["submit", "write"], { submit: true });
   ensurePollerStarted();
@@ -53,6 +57,8 @@ export const POST = withApi("recordings.create", async (req) => {
     const n = Number(v);
     return Number.isInteger(n) && n > 0 ? n : undefined;
   };
+  const tracks = parseTracksField(form.get("tracks"));
+  if ("error" in tracks) return { response: apiFail(tracks.error, 400), token };
   const tags = [String(form.get("tags") ?? ""), token.tagFilter ?? ""].filter(Boolean).join(",");
   const rec = await createRecording({
     title: String(form.get("title") ?? ""),
@@ -63,6 +69,7 @@ export const POST = withApi("recordings.create", async (req) => {
     minSpeakers: int(form.get("minSpeakers")),
     maxSpeakers: int(form.get("maxSpeakers")),
     ownerTokenId: token.id,
+    tracks: tracks.tracks,
     file,
   });
   return { response: NextResponse.json(publicRecording(rec), { status: 201 }), token, recordingId: rec.id };

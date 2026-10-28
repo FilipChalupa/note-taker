@@ -55,7 +55,8 @@ export async function startFakeNoteTaker() {
       const body = await readBody(req);
       const id = `rec-${++counter}`;
       const title = /name="title"\r\n\r\n([^\r]*)/.exec(body.toString("latin1"))?.[1] ?? "";
-      const rec = { id, title: title || "Untitled", owner: token.name, status: counter === 1 ? "PROCESSING" : "COMPLETED", progress: 40, phase: "TRANSCRIBING", language: "cs", durationSeconds: 12.5, speakerCount: 2, tags: [], error: null, warning: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), names: {}, bytes: body.length };
+      const tracks = /name="tracks"\r\n\r\n([^\r]*)/.exec(body.toString("latin1"))?.[1];
+      const rec = { id, title: title || "Untitled", owner: token.name, status: counter === 1 ? "PROCESSING" : "COMPLETED", progress: 40, phase: "TRANSCRIBING", language: "cs", durationSeconds: 12.5, speakerCount: 2, tags: [], error: null, warning: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), names: {}, bytes: body.length, tracks: tracks ? JSON.parse(tracks) : null };
       recordings.set(id, rec);
       return json(res, 201, rec);
     }

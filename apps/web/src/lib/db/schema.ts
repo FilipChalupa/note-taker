@@ -1,5 +1,5 @@
 import { integer, real, sqliteTable, text } from "drizzle-orm/sqlite-core";
-import type { ApiTokenScope, AudioQuality, RecordingStatus, TranscriptSegment, VoiceSuggestion, WorkerTaskStatus } from "@note-taker/shared";
+import type { ApiTokenScope, AudioQuality, RecordingStatus, TrackInfo, TrackSpec, TranscriptSegment, VoiceSuggestion, WorkerTaskStatus } from "@note-taker/shared";
 
 export const recordings = sqliteTable("recordings", {
   id: text("id").primaryKey(),
@@ -47,6 +47,10 @@ export const recordings = sqliteTable("recordings", {
   speakerSuggestions: text("speaker_suggestions", { mode: "json" }).$type<Record<string, VoiceSuggestion>>().notNull().default({}),
   /** Levels of the original upload as measured by the worker */
   audioQuality: text("audio_quality", { mode: "json" }).$type<AudioQuality>(),
+  /** Multi-track recordings: every audio stream and how the worker used it (null = single-track) */
+  tracks: text("tracks", { mode: "json" }).$type<TrackInfo[]>(),
+  /** Tracks requested for the next run; null = let the worker decide */
+  trackConfig: text("track_config", { mode: "json" }).$type<TrackSpec[]>(),
 
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull(),

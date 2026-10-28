@@ -61,6 +61,8 @@ class Segment(BaseModel):
     speaker: str
     text: str
     words: Optional[list[Word]] = None
+    # Audio stream the segment was transcribed from (multi-track files only)
+    track: Optional[int] = None
 
 
 class AudioQuality(BaseModel):
@@ -72,6 +74,24 @@ class AudioQuality(BaseModel):
     clipped_share: float
     # Share of the recording that is speech (0..1)
     speech_share: float
+
+
+class TrackInfo(BaseModel):
+    """One audio stream of a multi-track file and what the worker did with it."""
+    # Counts audio streams only (ffmpeg `0:a:N`)
+    index: int
+    # Requested name, else the stream's title tag
+    name: Optional[str] = None
+    title: Optional[str] = None
+    # "speech" (own speech), "mix" (sum of other tracks), "duplicate" (copy of another track), "silent"
+    role: str
+    used: bool
+    min_speakers: Optional[int] = None
+    max_speakers: Optional[int] = None
+    # Levels of this stream in the original upload
+    quality: Optional[AudioQuality] = None
+    # Speaker ids found on this track
+    speakers: list[str] = []
 
 
 class TaskResult(BaseModel):
@@ -89,6 +109,8 @@ class TaskResult(BaseModel):
     speaker_embeddings: Optional[dict[str, list[float]]] = None
     # None when it could not be measured or the task had no original upload (speakers-only re-run)
     audio_quality: Optional[AudioQuality] = None
+    # Every audio stream of a multi-track file (None for a single-track file)
+    tracks: Optional[list[TrackInfo]] = None
     audio_url: str
     audio_mime: str
 

@@ -39,6 +39,11 @@ reachable again.
 
 - Upload any audio/video container (drag & drop anywhere) or **record directly in the browser** (PWA, works on phones).
 - Transcription with WhisperX `large-v3`, word-level timestamps, speaker diarization (pyannote), hallucination filter.
+- **Multi-track recordings** (OBS records the mix, desktop audio and microphone as separate streams): every stream
+  with its own speech is transcribed and diarized on its own, the mix and silent or duplicate streams are skipped
+  automatically. Overlapping speech stays apart, a quiet microphone is normalized on its own, one person split in
+  two by the diarizer is joined again by voice, and speech that leaked into a second track is dropped. Tracks can
+  be named and given a speaker count ("Filip", 1 speaker), which names the speaker; see [Multi-track recordings](#multi-track-recordings).
 - **Glossary**: global list of names/terms plus per-recording hints, handed to Whisper so unusual words are spelled right.
 - Player with 1×–3× speed, ±5 s, keyboard and media keys; keeps playing while you browse. Click any sentence or word to seek; the current word is highlighted.
 - Transcript editing: fix text inline, adjust start/end times, split a sentence at the cursor (Ctrl+Enter), reassign a turn to another speaker, merge speakers, rename speakers, undo.
@@ -172,12 +177,33 @@ docker-compose.all.yml
 
 | Method | Path | Description |
 | --- | --- | --- |
-| `POST` | `/transcribe` | multipart `file` + optional `language`, `min_speakers`, `max_speakers` → `{task_id, status, queue_position}` (202) |
+| `POST` | `/transcribe` | multipart `file` + optional `language`, `min_speakers`, `max_speakers`, `initial_prompt`, `tracks` → `{task_id, status, queue_position}` (202) |
 | `GET` | `/tasks/{id}/status` | `status` (`QUEUED/CONVERTING/TRANSCRIBING/DIARIZING/COMPLETED/FAILED`), `progress` 0–100, `phase`, `queue_position`, `error` |
-| `GET` | `/tasks/{id}/result` | JSON with `segments[]` (`start`, `end`, `speaker`, `text`, `words[]`), `speakers[]`, `language`, `duration`, `audio_url` (202 until finished) |
+| `GET` | `/tasks/{id}/result` | JSON with `segments[]` (`start`, `end`, `speaker`, `text`, `words[]`, `track`), `speakers[]`, `tracks[]`, `language`, `duration`, `audio_url` (202 until finished) |
 | `GET` | `/tasks/{id}/audio` | normalized audio (16 kHz mono MP3) |
 | `DELETE` | `/tasks/{id}` | removes the task and its files |
 | `GET` | `/health` | CUDA availability, GPU name, VRAM and telemetry, queue length, loaded model |
 | `GET` | `/metrics` | totals (tasks, audio hours, processing time), failure rate, per-day buckets, phase speeds |
 
 When `WORKER_API_KEY` is set, every endpoint except `/health` requires the `X-API-Key` header.
+
+## Multi-track recordings
+
+A file with several audio streams (OBS: track 1 = mix, track 2 = desktop audio, track 3 = microphone) is split
+by the worker when `MULTITRACK=auto` (default):
+
+1. Every stream is measured. A stream whose level envelope matches the other streams combined is the **mix**, a
+   copy of another stream is a **duplicate**, a stream without speech above its noise floor is **silent**. These
+   are skipped; the rest are transcribed and diarized one by one, each normalized on its own.
+2. The per-track transcripts are merged by time with speaker ids numbered across tracks, and every segment
+   carries its `track`. Speech heard on two tracks at once with the same words (a microphone picking up the
+   loudspeaker) is kept only on the track where it was louder. Speakers whose voice embeddings are at least
+   `VOICE_MERGE_THRESHOLD` similar (default 0.6: one person split in two, or heard on two tracks) are joined.
+3. The playback MP3 is a mix of the used tracks; the sound report is the weakest used track.
+
+A request can choose the streams itself with `tracks`, a JSON array such as
+`[{"index": 1, "name": "Online"}, {"index": 2, "name": "Filip", "max_speakers": 1}]` (`index` counts audio
+streams from 0, `use: false` skips one). A track with one speaker and a name names that speaker. The web app takes
+the same field on upload (`/api/recordings`, `/api/v1/recordings`, MCP `submit_recording`), shows the tracks next
+to the speakers and lets you change names, speaker counts (speakers only, quick) or the chosen streams (new
+transcript).

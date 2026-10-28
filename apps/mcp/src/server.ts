@@ -76,6 +76,20 @@ export function buildServer(api: NoteTakerApi, identity: Identity, options: Serv
         notes: z.string().optional().describe("Free-form note stored with the recording"),
         min_speakers: z.number().int().min(1).max(30).optional(),
         max_speakers: z.number().int().min(1).max(30).optional(),
+        tracks: z
+          .array(
+            z.object({
+              index: z.number().int().min(0).describe("Audio stream number from 0 (OBS: 0 = mix, 1 = desktop audio, 2 = microphone)"),
+              name: z.string().max(60).optional().describe("Shown with the track; a track with one speaker names that speaker"),
+              use: z.boolean().optional().describe("false skips the stream"),
+              min_speakers: z.number().int().min(1).max(30).optional(),
+              max_speakers: z.number().int().min(1).max(30).optional().describe("1 for a track with one person, e.g. your own microphone"),
+            }),
+          )
+          .optional()
+          .describe(
+            "Multi-track files (OBS and similar): transcribe these audio streams separately. Omit to let the worker skip the mix, silent and duplicate streams itself.",
+          ),
         wait_seconds: z.number().int().min(0).max(3600).optional().describe("Wait this long for the transcript (0 returns immediately)"),
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
@@ -92,6 +106,7 @@ export function buildServer(api: NoteTakerApi, identity: Identity, options: Serv
         notes: args.notes,
         minSpeakers: args.min_speakers,
         maxSpeakers: args.max_speakers,
+        tracks: args.tracks,
       });
       if (!args.wait_seconds) return json({ id: rec.id, status: rec.status, hint: "Poll get_recording or call get_transcript with wait_seconds." });
       const done = await waitForCompletion(api, rec.id, args.wait_seconds);
@@ -117,7 +132,7 @@ export function buildServer(api: NoteTakerApi, identity: Identity, options: Serv
     {
       title: "Transcript with speaker annotations",
       description:
-        "Full transcript. `format` json returns segments with start, end, speaker id and resolved speaker name; markdown, text, srt and vtt return a ready document. " +
+        "Full transcript. `format` json returns segments with start, end, speaker id and resolved speaker name (multi-track recordings also the track and its name); markdown, text, srt and vtt return a ready document. " +
         "Use wait_seconds when the recording may still be processing.",
       inputSchema: {
         id: z.string(),

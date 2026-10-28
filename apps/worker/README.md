@@ -64,6 +64,8 @@ If the worker is exposed to the network, set `WORKER_API_KEY` (and the same valu
 | `HF_TOKEN` | – | pyannote token |
 | `DIARIZATION_ENABLED` | `1` | `0` disables diarization |
 | `DIARIZATION_MODEL` | `pyannote/speaker-diarization-community-1` | pyannote pipeline id on Hugging Face (falls back to 3.1) |
+| `MULTITRACK` | `auto` | files with several audio streams: `auto` transcribes each stream with its own speech separately (skips the mix, silent and duplicate streams), `off` uses the default stream only |
+| `VOICE_MERGE_THRESHOLD` | `0.6` | multi-track: join speakers whose voice embeddings are at least this similar; `0` = off |
 | `WORKER_API_KEY` | – | optional shared secret (`X-API-Key`) |
 | `WORKER_DATA_DIR` | `./data` | task storage (`data/tasks/<id>/{status.json,result.json,audio.mp3}`) |
 | `TASK_TTL_HOURS` | `72` | finished tasks older than this are deleted on startup |

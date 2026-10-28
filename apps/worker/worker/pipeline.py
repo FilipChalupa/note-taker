@@ -164,6 +164,87 @@ class Pipeline:
             pass
 
     # ---------------------------------------------------------------- running
+    def _transcribe(self, audio, language: Optional[str], initial_prompt: Optional[str],
+                    on_fraction: Callable[[float], None]) -> tuple[dict, str]:
+        """Whisper + word alignment. Returns (whisperx result, detected language)."""
+        import whisperx
+
+        asr = self.load_asr()
+        # Real progress: whisperx reports the fraction of VAD chunks transcribed so far.
+        # Transcription is ~85 % of this step, alignment the rest.
+        with _asr_prompt(asr, initial_prompt):
+            try:
+                result = asr.transcribe(
+                    audio,
+                    batch_size=settings.batch_size,
+                    language=language or None,
+                    progress_callback=lambda pct: on_fraction(0.85 * pct / 100),
+                )
+            except TypeError:  # older whisperx without progress_callback
+                result = asr.transcribe(audio, batch_size=settings.batch_size, language=language or None)
+        detected_language: str = result.get("language") or language or "unknown"
+        on_fraction(0.85)
+
+        # Word-level alignment (skipped if no alignment model exists for the language)
+        try:
+            model_a, metadata = self._load_align(detected_language)
+            result = whisperx.align(
+                result["segments"], model_a, metadata, audio, settings.device,
+                return_char_alignments=False,
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Alignment skipped (%s): %s", detected_language, exc)
+        on_fraction(1.0)
+        return result, detected_language
+
+    def _diarize(self, audio, result: dict, min_speakers: Optional[int], max_speakers: Optional[int],
+                 on_fraction: Callable[[float], None]) -> tuple[dict, bool, Optional[str], Optional[dict[str, list[float]]]]:
+        """pyannote speakers assigned to the words of `result`. Never raises: a failure is reported instead.
+        Returns (result, diarized, diarization_error, speaker_embeddings)."""
+        import whisperx
+
+        if not settings.diarization_enabled:
+            return result, False, "Diarization disabled (DIARIZATION_ENABLED=0)", None
+        if not settings.hf_token:
+            self.diarization_error = "HF_TOKEN is not set"
+            log.warning("DIARIZATION_ENABLED but HF_TOKEN missing - skipping diarization")
+            return result, False, self.diarization_error, None
+        try:
+            diarizer = self._load_diarizer()
+            kwargs = {}
+            if min_speakers:
+                kwargs["min_speakers"] = min_speakers
+            if max_speakers:
+                kwargs["max_speakers"] = max_speakers
+            diarize_segments, speaker_embeddings = _run_diarizer(diarizer, audio, kwargs, on_fraction)
+            result = whisperx.assign_word_speakers(diarize_segments, result)
+            self.diarization_error = None
+            return result, True, None, speaker_embeddings
+        except Exception as exc:  # noqa: BLE001
+            error = _short_error(exc) if not isinstance(exc, RuntimeError) else str(exc)[:600]
+            self.diarization_error = error
+            self._diarizer = None  # retry loading next time
+            log.exception("Diarization failed, continuing without speakers: %s", exc)
+            return result, False, error, None
+
+    @staticmethod
+    def _finish(result: dict, diarized: bool) -> list[dict]:
+        segments = _postprocess_segments(result.get("segments", []), diarized)
+        if settings.hallucination_filter:
+            segments = _filter_hallucinations(segments)
+        return segments
+
+    @staticmethod
+    def _free() -> None:
+        """Free per-file tensors (models stay resident)."""
+        gc.collect()
+        try:
+            import torch
+
+            torch.cuda.empty_cache()
+        except Exception:  # pragma: no cover
+            pass
+
     def run(
         self,
         audio_path: Path,
@@ -176,96 +257,80 @@ class Pipeline:
         import whisperx
 
         progress("TRANSCRIBING", _band_pct("TRANSCRIBING", 0.0), 0.0)
-        asr = self.load_asr()
         audio = whisperx.load_audio(str(audio_path))
-
-        # Real progress: whisperx reports the fraction of VAD chunks transcribed so far.
-        # Transcription is ~85 % of this phase, alignment the rest.
-        def on_asr_progress(pct: float) -> None:
-            progress("TRANSCRIBING", _band_pct("TRANSCRIBING", 0.85 * pct / 100), 0.85 * pct / 100)
-
-        with _asr_prompt(asr, initial_prompt):
-            try:
-                result = asr.transcribe(
-                    audio,
-                    batch_size=settings.batch_size,
-                    language=language or None,
-                    progress_callback=on_asr_progress,
-                )
-            except TypeError:  # older whisperx without progress_callback
-                result = asr.transcribe(audio, batch_size=settings.batch_size, language=language or None)
-        detected_language: str = result.get("language") or language or "unknown"
+        result, detected_language = self._transcribe(
+            audio, language, initial_prompt, lambda f: progress("TRANSCRIBING", _band_pct("TRANSCRIBING", f), f))
         log.info("Transcribed %s, language=%s, segments=%d",
                  audio_path.name, detected_language, len(result.get("segments", [])))
-        progress("TRANSCRIBING", _band_pct("TRANSCRIBING", 0.85), 0.85)
 
-        # Word-level alignment (skipped if no alignment model exists for the language)
-        try:
-            model_a, metadata = self._load_align(detected_language)
-            result = whisperx.align(
-                result["segments"], model_a, metadata, audio, settings.device,
-                return_char_alignments=False,
-            )
-        except Exception as exc:  # noqa: BLE001
-            log.warning("Alignment skipped (%s): %s", detected_language, exc)
-        progress("TRANSCRIBING", _band_pct("TRANSCRIBING", 1.0), 1.0)
-
-        diarized = False
-        diarization_error: Optional[str] = None
-        speaker_embeddings: Optional[dict[str, list[float]]] = None
-        if settings.diarization_enabled and settings.hf_token:
-            progress("DIARIZING", _band_pct("DIARIZING", 0.0), 0.0)
-            try:
-                diarizer = self._load_diarizer()
-                kwargs = {}
-                if min_speakers:
-                    kwargs["min_speakers"] = min_speakers
-                if max_speakers:
-                    kwargs["max_speakers"] = max_speakers
-                diarize_segments, speaker_embeddings = _run_diarizer(
-                    diarizer, audio, kwargs,
-                    lambda f: progress("DIARIZING", _band_pct("DIARIZING", f), f),
-                )
-                result = whisperx.assign_word_speakers(diarize_segments, result)
-                diarized = True
-                self.diarization_error = None
-            except Exception as exc:  # noqa: BLE001
-                diarization_error = _short_error(exc) if not isinstance(exc, RuntimeError) else str(exc)[:600]
-                self.diarization_error = diarization_error
-                self._diarizer = None  # retry loading next time
-                log.exception("Diarization failed, continuing without speakers: %s", exc)
-        elif settings.diarization_enabled and not settings.hf_token:
-            diarization_error = "HF_TOKEN is not set"
-            self.diarization_error = diarization_error
-            log.warning("DIARIZATION_ENABLED but HF_TOKEN missing - skipping diarization")
-        else:
-            diarization_error = "Diarization disabled (DIARIZATION_ENABLED=0)"
+        progress("DIARIZING", _band_pct("DIARIZING", 0.0), 0.0)
+        result, diarized, diarization_error, speaker_embeddings = self._diarize(
+            audio, result, min_speakers, max_speakers, lambda f: progress("DIARIZING", _band_pct("DIARIZING", f), f))
         progress("DIARIZING", _band_pct("DIARIZING", 1.0), 1.0)
 
-        segments = _postprocess_segments(result.get("segments", []), diarized)
-        if settings.hallucination_filter:
-            segments = _filter_hallucinations(segments)
-        speakers = _ordered_speakers(segments)
-
-        # Free per-file tensors (models stay resident)
+        segments = self._finish(result, diarized)
         del audio
-        gc.collect()
-        try:
-            import torch
-
-            torch.cuda.empty_cache()
-        except Exception:  # pragma: no cover
-            pass
-
+        self._free()
         return {
             "language": detected_language,
             "diarized": diarized,
             "diarization_error": diarization_error,
-            "speakers": speakers,
+            "speakers": _ordered_speakers(segments),
             "segments": segments,
             "speaker_embeddings": speaker_embeddings,
         }
 
+    def run_tracks(
+        self,
+        tracks: list[dict],
+        language: Optional[str],
+        progress: ProgressCb,
+        initial_prompt: Optional[str] = None,
+        levels: Optional[dict] = None,
+        merge_threshold: float = 0.0,
+    ) -> dict:
+        """Transcribe and diarize every track on its own, then merge them into one transcript.
+
+        `tracks`: [{index, path, min_speakers, max_speakers}] of normalized single-track audio. `levels`
+        (track index -> frame levels of the original) decides which copy of bled speech is kept. All tracks
+        are transcribed first and diarized after, so the phases advance once like for a single file.
+        """
+        import whisperx
+
+        n = len(tracks)
+        transcribed: list[tuple[dict, dict]] = []
+        progress("TRANSCRIBING", _band_pct("TRANSCRIBING", 0.0), 0.0)
+        for k, tr in enumerate(tracks):
+            audio = whisperx.load_audio(str(tr["path"]))
+            band = lambda f, k=k: progress("TRANSCRIBING", _band_pct("TRANSCRIBING", (k + f) / n), (k + f) / n)  # noqa: E731
+            result, detected = self._transcribe(audio, language, initial_prompt, band)
+            # Auto-detect once: a quiet or short track is easily mistaken for another language
+            language = language or detected
+            log.info("Transcribed track %d, language=%s, segments=%d", tr["index"], detected, len(result.get("segments", [])))
+            transcribed.append((tr, result))
+            del audio
+            self._free()
+
+        per_track: list[tuple[int, dict]] = []
+        diarized_all = True
+        diarization_error: Optional[str] = None
+        progress("DIARIZING", _band_pct("DIARIZING", 0.0), 0.0)
+        for k, (tr, result) in enumerate(transcribed):
+            audio = whisperx.load_audio(str(tr["path"]))
+            band = lambda f, k=k: progress("DIARIZING", _band_pct("DIARIZING", (k + f) / n), (k + f) / n)  # noqa: E731
+            result, diarized, error, embeddings = self._diarize(audio, result, tr.get("min_speakers"), tr.get("max_speakers"), band)
+            diarized_all = diarized_all and diarized
+            diarization_error = diarization_error or error
+            segments = self._finish(result, diarized)
+            per_track.append((tr["index"], {"speakers": _ordered_speakers(segments), "segments": segments,
+                                            "speaker_embeddings": embeddings}))
+            del audio
+            self._free()
+        progress("DIARIZING", _band_pct("DIARIZING", 1.0), 1.0)
+
+        out = _merge_tracks(per_track, levels or {}, merge_threshold, drop_bleed=True)
+        out.update({"language": language or "unknown", "diarized": diarized_all, "diarization_error": diarization_error})
+        return out
 
     def diarize_only(
         self,
@@ -306,6 +371,73 @@ class Pipeline:
         gc.collect()
         return {"diarized": True, "diarization_error": None, "speakers": _ordered_speakers(out), "segments": out,
                 "speaker_embeddings": speaker_embeddings}
+
+
+    def diarize_only_tracks(
+        self,
+        tracks: list[dict],
+        segments: list[dict],
+        progress: ProgressCb,
+        merge_threshold: float = 0.0,
+    ) -> dict:
+        """Speakers-only re-run of a multi-track transcript: every track is diarized against its own segments."""
+        import whisperx
+
+        if not settings.diarization_enabled or not settings.hf_token:
+            raise RuntimeError("Diarization is disabled or HF_TOKEN is not set")
+        by_track: dict[int, list[dict]] = {}
+        for seg in segments:
+            seg = dict(seg)
+            seg.pop("speaker", None)
+            seg["words"] = [{k: v for k, v in w.items() if k != "speaker"} for w in (seg.get("words") or [])]
+            by_track.setdefault(seg.get("track", tracks[0]["index"]), []).append(seg)
+        diarizer = self._load_diarizer()
+        n = len(tracks)
+        per_track: list[tuple[int, dict]] = []
+        progress("DIARIZING", 10, 0.0)
+        for k, tr in enumerate(tracks):
+            audio = whisperx.load_audio(str(tr["path"]))
+            kwargs = {}
+            if tr.get("min_speakers"):
+                kwargs["min_speakers"] = tr["min_speakers"]
+            if tr.get("max_speakers"):
+                kwargs["max_speakers"] = tr["max_speakers"]
+            diarize_segments, embeddings = _run_diarizer(
+                diarizer, audio, kwargs, lambda f, k=k: progress("DIARIZING", int(10 + 85 * (k + f) / n), (k + f) / n))
+            result = whisperx.assign_word_speakers(diarize_segments, {"segments": by_track.get(tr["index"], [])})
+            out = _postprocess_segments(result.get("segments", []), True)
+            per_track.append((tr["index"], {"speakers": _ordered_speakers(out), "segments": out, "speaker_embeddings": embeddings}))
+            del audio
+            self._free()
+        # segments of a stream that is not re-diarized keep their text, without a speaker
+        diarized_tracks = {tr["index"] for tr in tracks}
+        for t, segs in by_track.items():
+            if t not in diarized_tracks:
+                per_track.append((t, {"speakers": [], "segments": [dict(seg, speaker="UNKNOWN") for seg in segs], "speaker_embeddings": None}))
+        self.diarization_error = None
+        progress("DIARIZING", 95, 1.0)
+        merged = _merge_tracks(per_track, {}, merge_threshold, drop_bleed=False)
+        merged.update({"diarized": True, "diarization_error": None})
+        return merged
+
+
+def _merge_tracks(per_track: list[tuple[int, dict]], levels: dict, merge_threshold: float, drop_bleed: bool) -> dict:
+    """Per-track results -> one transcript: global speaker ids, bleed removed, one person's split voices joined."""
+    from . import tracks as T
+
+    merged = T.merge_track_results(per_track)
+    segments = merged["segments"]
+    if drop_bleed:
+        segments, dropped = T.drop_bleed(segments, levels)
+        if dropped:
+            log.info("Dropped %d segment(s) heard on two tracks", dropped)
+    segments, embeddings, joined = T.merge_similar_voices(segments, merged["speaker_embeddings"], merge_threshold)
+    if joined:
+        log.info("Joined speakers with the same voice: %s", joined)
+    track_speakers = {t: list(dict.fromkeys(joined.get(s, s) for s in sps)) for t, sps in merged["track_speakers"].items()}
+    segments, embeddings, track_speakers = T.renumber_speakers(segments, embeddings, track_speakers)
+    return {"segments": segments, "speakers": _ordered_speakers(segments), "speaker_embeddings": embeddings,
+            "track_speakers": track_speakers}
 
 
 # --------------------------------------------------------------------- utils

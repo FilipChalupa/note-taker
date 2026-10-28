@@ -2,7 +2,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { and, eq, inArray } from "drizzle-orm";
-import type { RecordingDetail, TranscriptSegment } from "@note-taker/shared";
+import type { RecordingDetail, TrackSpec, TranscriptSegment } from "@note-taker/shared";
+import { trackSpeakerNames, tracksToSpecs } from "@note-taker/shared";
 import { config, recordingDir } from "@/lib/config";
 import { db, schema } from "@/lib/db";
 import { buildInitialPrompt } from "@/lib/settings";
@@ -14,7 +15,11 @@ import { indexRecording } from "./search";
 
 const { recordings } = schema;
 
-export async function retryRecording(id: string): Promise<RecordingDetail | null> {
+/**
+ * Transcribe again from the original upload. `tracks` (multi-track files) picks the audio streams for this
+ * and later runs; omitted keeps the earlier choice, null goes back to the worker's automatic choice.
+ */
+export async function retryRecording(id: string, opts: { tracks?: TrackSpec[] | null } = {}): Promise<RecordingDetail | null> {
   const row = getRecordingRow(id);
   if (!row) return null;
   if (!fs.existsSync(row.originalPath)) {
@@ -37,6 +42,7 @@ export async function retryRecording(id: string): Promise<RecordingDetail | null
       dispatchAttempts: 0,
       // speaker ids are reassigned by a new diarization run, old names would not match
       speakerNames: row.status === "COMPLETED" ? {} : row.speakerNames,
+      ...(opts.tracks !== undefined ? { trackConfig: opts.tracks } : {}),
       updatedAt: now(),
     })
     .where(eq(recordings.id, id))
@@ -52,12 +58,25 @@ export async function retryRecording(id: string): Promise<RecordingDetail | null
  */
 export async function rediarizeRecording(
   id: string,
-  opts: { minSpeakers?: number; maxSpeakers?: number },
+  opts: { minSpeakers?: number; maxSpeakers?: number; tracks?: TrackSpec[] },
 ): Promise<{ recording: RecordingDetail } | { error: string; status: number }> {
   const row = getRecordingRow(id);
   if (!row) return { error: "NOT_FOUND", status: 404 };
   if (row.status !== "COMPLETED") return { error: "NOT_FINISHED", status: 409 };
-  const audio = row.audioPath && fs.existsSync(row.audioPath) ? row.audioPath : fs.existsSync(row.originalPath) ? row.originalPath : null;
+  let tracks = row.tracks;
+  if (opts.tracks) {
+    // new names and speaker counts for the same streams; choosing other streams needs a new transcript
+    const used = (list: { index: number; use?: boolean; used?: boolean }[]) =>
+      list.filter((t) => t.use ?? t.used).map((t) => t.index).join(",");
+    if (!tracks || used(tracks) !== used(opts.tracks)) return { error: "TRACKS_CHANGED", status: 409 };
+    tracks = tracks.map((t) => {
+      const spec = opts.tracks!.find((x) => x.index === t.index);
+      return spec ? { ...t, name: spec.name ?? null, min_speakers: spec.min_speakers ?? null, max_speakers: spec.max_speakers ?? null } : t;
+    });
+  }
+  const audio = row.tracks?.some((t) => t.used)
+    ? fs.existsSync(row.originalPath) ? row.originalPath : null // every track is diarized on its own stream
+    : row.audioPath && fs.existsSync(row.audioPath) ? row.audioPath : fs.existsSync(row.originalPath) ? row.originalPath : null;
   if (!audio) return { error: "AUDIO_UNAVAILABLE", status: 409 };
   if (!row.segments?.length) return { error: "NO_TRANSCRIPT", status: 409 };
 
@@ -74,6 +93,7 @@ export async function rediarizeRecording(
       dispatchAttempts: 0,
       minSpeakers: opts.minSpeakers ?? null,
       maxSpeakers: opts.maxSpeakers ?? null,
+      tracks,
       updatedAt: now(),
     })
     .where(eq(recordings.id, id))
@@ -89,11 +109,13 @@ export async function dispatch(id: string): Promise<void> {
   try {
     let accepted;
     if (row.taskKind === "diarize") {
-      const audio = row.audioPath && fs.existsSync(row.audioPath) ? row.audioPath : row.originalPath;
-      accepted = await workerClient.submitDiarize(audio, path.basename(audio), row.segments, {
+      const multiTrack = row.tracks?.some((t) => t.used) ?? false;
+      const audio = multiTrack ? row.originalPath : row.audioPath && fs.existsSync(row.audioPath) ? row.audioPath : row.originalPath;
+      accepted = await workerClient.submitDiarize(audio, multiTrack ? row.originalFilename : path.basename(audio), row.segments, {
         language: row.detectedLanguage ?? undefined,
         min_speakers: row.minSpeakers ?? undefined,
         max_speakers: row.maxSpeakers ?? undefined,
+        tracks: multiTrack ? tracksToSpecs(row.tracks!.filter((t) => t.used)) : undefined,
       });
     } else {
       accepted = await workerClient.submit(row.originalPath, row.originalFilename, {
@@ -101,6 +123,7 @@ export async function dispatch(id: string): Promise<void> {
         min_speakers: row.minSpeakers ?? undefined,
         max_speakers: row.maxSpeakers ?? undefined,
         initial_prompt: buildInitialPrompt(row.hints),
+        tracks: row.trackConfig ?? undefined,
       });
     }
     db.update(recordings)
@@ -242,7 +265,16 @@ export async function syncRecording(id: string): Promise<void> {
     speaker: s.speaker,
     text: s.text,
     words: s.words?.map((w) => ({ word: w.word, start: w.start, end: w.end, speaker: w.speaker })),
+    ...(typeof s.track === "number" ? { track: s.track } : {}),
   }));
+  // a speakers-only re-run keeps the streams, only the speakers found on them change
+  const tracks = result.tracks?.length
+    ? diarizeOnly && row.tracks
+      ? row.tracks.map((t) => ({ ...t, speakers: result.tracks!.find((r) => r.index === t.index)?.speakers ?? [] }))
+      : result.tracks
+    : diarizeOnly
+      ? row.tracks
+      : null;
 
   db.update(recordings)
     .set({
@@ -257,7 +289,8 @@ export async function syncRecording(id: string): Promise<void> {
       detectedLanguage: diarizeOnly ? row.detectedLanguage : result.language,
       speakerCount: result.speakers.filter((s) => s !== "UNKNOWN").length,
       speakers: result.speakers,
-      speakerNames: {},
+      speakerNames: trackSpeakerNames(tracks),
+      tracks,
       speakerEmbeddings: result.speaker_embeddings ?? null,
       speakerSuggestions: suggestSpeakers(result.speaker_embeddings),
       segments,

@@ -42,10 +42,24 @@ export function talkFile(noisy = false): string {
   return file;
 }
 
+let obs: string | null = null;
+
+/** 12 s OBS-like recording: stream 0 = mix of 1 and 2, stream 1 = "online" bursts, stream 2 = "microphone" bursts. */
+export function obsFile(): string {
+  if (obs && fs.existsSync(obs)) return obs;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "note-taker-audio-"));
+  obs = path.join(dir, "obs.mka");
+  const online = "aevalsrc=0.3*sin(2*PI*300*t)*lt(t\\,6)*lt(mod(t\\,1)\\,0.5):s=16000:d=12";
+  const mic = "aevalsrc=0.1*sin(2*PI*500*t)*gte(t\\,6)*lt(mod(t\\,1)\\,0.5):s=16000:d=12";
+  const graph = `${online},asplit[o1][o2];${mic},asplit[m1][m2];[o1][m1]amix=inputs=2:normalize=0[mix]`;
+  execFileSync("ffmpeg", ["-y", "-hide_banner", "-loglevel", "error", "-filter_complex", graph, "-map", "[mix]", "-map", "[o2]", "-map", "[m2]", "-c:a", "flac", obs]);
+  return obs;
+}
+
 export async function uploadRecording(request: APIRequestContext, title: string, extra: Record<string, string> = {}, file: string = toneFile()) {
-  const wav = file.endsWith(".wav");
+  const mimeType = file.endsWith(".wav") ? "audio/wav" : file.endsWith(".mka") ? "audio/x-matroska" : "audio/mp4";
   const res = await request.post("/api/recordings", {
-    multipart: { file: { name: path.basename(file), mimeType: wav ? "audio/wav" : "audio/mp4", buffer: fs.readFileSync(file) }, title, language: "cs", ...extra },
+    multipart: { file: { name: path.basename(file), mimeType, buffer: fs.readFileSync(file) }, title, language: "cs", ...extra },
   });
   if (!res.ok()) throw new Error(`upload failed: ${res.status()} ${await res.text()}`);
   return (await res.json()) as { id: string; status: string };

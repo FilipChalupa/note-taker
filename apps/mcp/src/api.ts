@@ -107,6 +107,7 @@ export class NoteTakerApi {
     notes?: string;
     minSpeakers?: number;
     maxSpeakers?: number;
+    tracks?: Array<{ index: number; name?: string; use?: boolean; min_speakers?: number; max_speakers?: number }>;
   }): Promise<RecordingSummary> {
     const form = new FormData();
     if (input.path) {
@@ -128,6 +129,7 @@ export class NoteTakerApi {
     ] as const) {
       if (value !== undefined && value !== null && value !== "") form.append(key, String(value));
     }
+    if (input.tracks?.length) form.append("tracks", JSON.stringify(input.tracks));
     // large uploads over a slow link
     return this.request("/api/v1/recordings", { method: "POST", body: form }, 30 * 60_000);
   }

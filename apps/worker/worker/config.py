@@ -16,6 +16,14 @@ def _bool(name: str, default: bool) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _float(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    try:
+        return float(raw) if raw not in (None, "") else default
+    except ValueError:
+        return default
+
+
 def _int(name: str, default: int) -> int:
     raw = os.getenv(name)
     try:
@@ -42,6 +50,14 @@ class Settings:
     diarization_enabled: bool = _bool("DIARIZATION_ENABLED", True)
     # pyannote pipeline on Hugging Face (gated: accept the model terms with the HF_TOKEN account)
     diarization_model: str = os.getenv("DIARIZATION_MODEL") or "pyannote/speaker-diarization-community-1"
+
+    # Files with several audio streams (OBS: mix, desktop, microphone): "auto" transcribes every stream that
+    # carries its own speech separately and skips the mix, silent and duplicate ones; "off" takes the
+    # default stream only, like a single-track file. A request can always name the tracks itself.
+    multitrack: str = (os.getenv("MULTITRACK", "auto") or "auto").strip().lower()
+    # Multi-track only: join speakers whose voice embeddings are at least this similar (one person split
+    # in two, or heard on two tracks). 0 turns it off.
+    voice_merge_threshold: float = _float("VOICE_MERGE_THRESHOLD", 0.6)
 
     data_dir: Path = Path(os.getenv("WORKER_DATA_DIR", "./data")).resolve()
     task_ttl_hours: int = _int("TASK_TTL_HOURS", 72)

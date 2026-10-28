@@ -65,6 +65,7 @@ export const workerClient = {
     if (params.min_speakers) form.append("min_speakers", String(params.min_speakers));
     if (params.max_speakers) form.append("max_speakers", String(params.max_speakers));
     if (params.initial_prompt) form.append("initial_prompt", params.initial_prompt);
+    if (params.tracks?.length) form.append("tracks", JSON.stringify(params.tracks));
     // Large uploads over slow links: give it 10 minutes
     return request<TranscribeAccepted>("/transcribe", { method: "POST", body: form }, 10 * 60_000);
   },
@@ -84,6 +85,8 @@ export const workerClient = {
     if (params.language) form.append("language", params.language);
     if (params.min_speakers) form.append("min_speakers", String(params.min_speakers));
     if (params.max_speakers) form.append("max_speakers", String(params.max_speakers));
+    // multi-track: `audioPath` is the original upload, every segment carries its track
+    if (params.tracks?.length) form.append("tracks", JSON.stringify(params.tracks));
     return request<TranscribeAccepted>("/diarize", { method: "POST", body: form }, 10 * 60_000);
   },
 

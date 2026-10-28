@@ -5,6 +5,7 @@ import type { RecordingDetail, SpeakerStats } from "@note-taker/shared";
 import { formatTime, speakerColor } from "@/lib/format";
 import { fmt } from "@/lib/i18n";
 import { useI18n } from "@/lib/i18n/client";
+import { TracksSection } from "./TracksPanel";
 
 /** Side panel: speaker names, voice suggestions, merging, talk-time stats and re-transcription hints. */
 export function SpeakersPanel({
@@ -18,6 +19,7 @@ export function SpeakersPanel({
   onApplySuggestions,
   onMerge,
   onSaveHints,
+  onEditTracks,
 }: {
   rec: RecordingDetail;
   names: Record<string, string>;
@@ -29,6 +31,7 @@ export function SpeakersPanel({
   onApplySuggestions: (speakers?: string[]) => void;
   onMerge: (from: string, into: string) => void;
   onSaveHints: (hints: string) => void;
+  onEditTracks: () => void;
 }) {
   const { m } = useI18n();
   const [hintsDraft, setHintsDraft] = useState(rec.hints ?? "");
@@ -123,6 +126,7 @@ export function SpeakersPanel({
           </div>
         </div>
       )}
+      <TracksSection rec={rec} label={label} onEdit={onEditTracks} />
       <div className="mt-5 border-t border-zinc-200 pt-4 dark:border-zinc-800 print:hidden">
         <h3 className="mb-1 text-sm font-semibold">{m.detail.hintsTitle}</h3>
         <textarea className="input min-h-[64px] text-sm" value={hintsDraft} onChange={(e) => setHintsDraft(e.target.value)} placeholder={m.upload.hintsPlaceholder} />

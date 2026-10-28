@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { config, SUPPORTED_MEDIA } from "@/lib/config";
 import type { RecordingSort, RecordingView } from "@note-taker/shared";
+import { parseTracksField } from "@/lib/tracks";
 import { createRecording, listRecordings, pageRecordings } from "@/lib/recordings";
 import { ensurePollerStarted } from "@/lib/poller";
 
@@ -61,6 +62,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "SPEAKER_RANGE" }, { status: 400 });
   }
 
-  const rec = await createRecording({ title, language, hints, tags, minSpeakers, maxSpeakers, file });
+  const tracks = parseTracksField(form.get("tracks"));
+  if ("error" in tracks) return NextResponse.json({ error: tracks.error }, { status: 400 });
+
+  const rec = await createRecording({ title, language, hints, tags, minSpeakers, maxSpeakers, tracks: tracks.tracks, file });
   return NextResponse.json(rec, { status: 201 });
 }

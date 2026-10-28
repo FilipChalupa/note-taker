@@ -100,8 +100,43 @@ def fake_diarize(self, audio_path, segments, min_speakers, max_speakers, progres
             "speaker_embeddings": {sp: _embedding(i + 1) for i, sp in enumerate(speakers)}}
 
 
+def fake_run_tracks(self, tracks, language, progress, initial_prompt=None, levels=None, merge_threshold=0.0):
+    """Every track: one line per expected speaker, merged by the real multi-track code."""
+    progress("TRANSCRIBING", 30, 0.3)
+    time.sleep(PHASE)
+    progress("DIARIZING", 80, 0.5)
+    time.sleep(PHASE)
+    per_track = []
+    for k, tr in enumerate(tracks):
+        count = tr.get("max_speakers") or 2
+        segs = [{"start": k * 4.0 + i * 1.5, "end": k * 4.0 + i * 1.5 + 1.2, "speaker": f"SPEAKER_0{i}",
+                 "text": f"Stopa {tr['index'] + 1}, mluvčí {i + 1}.", "words": None} for i in range(count)]
+        per_track.append((tr["index"], {"speakers": [s["speaker"] for s in segs], "segments": segs,
+                                        "speaker_embeddings": {s["speaker"]: _embedding(10 * k + i + 3) for i, s in enumerate(segs)}}))
+    out = P._merge_tracks(per_track, levels or {}, merge_threshold, drop_bleed=True)
+    out.update({"language": language or "cs", "diarized": True, "diarization_error": None})
+    return out
+
+
+def fake_diarize_tracks(self, tracks, segments, progress, merge_threshold=0.0):
+    progress("DIARIZING", 50, 0.5)
+    time.sleep(PHASE)
+    per_track = []
+    for k, tr in enumerate(tracks):
+        mine = [dict(s, speaker="SPEAKER_00" if tr.get("max_speakers") == 1 else f"SPEAKER_0{i % 2}")
+                for i, s in enumerate(x for x in segments if x.get("track") == tr["index"])]
+        speakers = list(dict.fromkeys(s["speaker"] for s in mine))
+        per_track.append((tr["index"], {"speakers": speakers, "segments": mine,
+                                        "speaker_embeddings": {sp: _embedding(10 * k + i + 3) for i, sp in enumerate(speakers)}}))
+    out = P._merge_tracks(per_track, {}, merge_threshold, drop_bleed=False)
+    out.update({"diarized": True, "diarization_error": None})
+    return out
+
+
 P.Pipeline.run = fake_run
 P.Pipeline.diarize_only = fake_diarize
+P.Pipeline.run_tracks = fake_run_tracks
+P.Pipeline.diarize_only_tracks = fake_diarize_tracks
 
 if __name__ == "__main__":
     import uvicorn

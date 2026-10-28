@@ -75,6 +75,15 @@ describe("note-taker MCP server", () => {
     await client.close();
   });
 
+  test("submit forwards the chosen tracks of a multi-track file", async () => {
+    const client = await connect(fake.url, "nt_submit");
+    const tracks = [{ index: 1, name: "Online" }, { index: 2, name: "Filip", max_speakers: 1 }];
+    const created = JSON.parse(textOf(await client.callTool({ name: "submit_recording", arguments: { path: audioFile, title: "Tracks", tracks } })));
+    const rec = JSON.parse(textOf(await client.callTool({ name: "get_recording", arguments: { id: created.id } })));
+    assert.deepEqual(rec.tracks, tracks);
+    await client.close();
+  });
+
   test("submit with wait_seconds returns the finished transcript in one call", async () => {
     const client = await connect(fake.url, "nt_submit");
     const res = await client.callTool({ name: "submit_recording", arguments: { path: audioFile, title: "Waited", wait_seconds: 10 } });
